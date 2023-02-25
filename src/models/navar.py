@@ -49,7 +49,7 @@ def test_model(model_constructor: type(NAVAR)):
     num_nodes = 5
 
     model = model_constructor(num_nodes=num_nodes, kernel_size=3, n_layers=2,
-                              hidden_dim=16, lambda1=0.1, dropout=0.1)
+                              hidden_dim=4, lambda1=0.1, dropout=0.1)
 
     x = torch.rand((batch_size, num_nodes, time_steps))
     y = torch.rand((batch_size, num_nodes, time_steps))
@@ -69,3 +69,4 @@ def test_model(model_constructor: type(NAVAR)):
     print("eval=")
     for v in evaluation:
         print(f"\t{v.size()}")
+
