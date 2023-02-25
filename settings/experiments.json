@@ -1,0 +1,37 @@
+{
+  "nonlinear-VAR_N-3_T-300": {
+    "max_evals": 200,
+    "n_validation_sets": 5,
+    "overwrite_hyper_params": {"kernel_size":  3, "n_layers":  1}
+  },
+  "nonlinear-VAR_N-5_T-300": {
+    "max_evals": 200,
+    "n_validation_sets": 5,
+    "overwrite_hyper_params": {"kernel_size":  3, "n_layers":  1, "dropout":  0.2, "epochs": 2500}
+  },
+    "nonlinear-VAR_N-10_T-300": {
+      "max_evals": 200,
+      "n_validation_sets": 5,
+      "overwrite_hyper_params": {"kernel_size":  3, "n_layers":  1}
+  },
+    "nonlinear-VAR_N-20_T-300": {
+      "max_evals": 200,
+      "n_validation_sets": 5,
+      "overwrite_hyper_params": {"kernel_size":  3, "n_layers":  1}
+  },
+    "river-runoff_N-12_T-4600": {
+      "max_evals": 200,
+      "n_validation_sets": 5,
+      "overwrite_hyper_params": {"kernel_size":  3, "n_layers":  1}
+  },
+    "TestCLIM_N-40_T-250": {
+      "max_evals": 200,
+      "n_validation_sets": 5,
+      "overwrite_hyper_params": {"kernel_size":  2, "n_layers":  1}
+  },
+    "TestWEATH_N-10_T-2000": {
+      "max_evals": 200,
+      "n_validation_sets": 5,
+      "overwrite_hyper_params": {"kernel_size":  3, "n_layers":  1}
+  }
+}
