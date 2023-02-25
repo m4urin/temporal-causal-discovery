@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from src.models.navar import NAVAR, test_model
+from src.models.navar import NAVAR
 
 
 class NAVAR_SMALL(NAVAR):
@@ -86,4 +86,5 @@ class NAVAR_SMALL(NAVAR):
 
 
 if __name__ == '__main__':
+    from src.models.navar import test_model
     test_model(NAVAR_SMALL)

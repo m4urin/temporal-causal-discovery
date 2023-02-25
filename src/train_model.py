@@ -18,6 +18,9 @@ def train_model(model_constructor: type[NAVAR], data, epochs, val_proportion, le
     n_train = time_steps - n_test
     check_every = 50
 
+    if hidden_dim > 8:
+        raise Exception("hidden_dim should be <= 8, because hidden size is equal to 2^hidden_dim")
+
     model = model_constructor(num_nodes=num_nodes,
                               kernel_size=kernel_size,
                               n_layers=n_layers,

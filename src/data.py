@@ -110,13 +110,45 @@ def toy_data_5_nodes_variational(batch_size: int = 1, time_steps: int = 500, war
     return data.to(device=DEVICE, dtype=torch.float32)
 
 
+def toy_data_chain_noise(noise: float, batch_size: int = 1, time_steps: int = 500, warmup: int = 200):
+    n_variables = 4
+    data = torch.randn((batch_size, n_variables, warmup + time_steps))
+    data[:, :-1, 1:] *= noise  # noise factor
+    contributions = torch.zeros((batch_size, n_variables, n_variables, warmup + time_steps))
+    for i in range(1, warmup + time_steps):
+        contributions[:, 1, 0, i] = 0.5 * (data[:, 1, i - 1] - 0.4) ** 2
+        contributions[:, 2, 1, i] = torch.sin(np.pi * data[:, 2, i - 1].clamp(min=-1.0, max=1.0))
+        contributions[:, 3, 2, i] = torch.sigmoid(2 * data[:, 3, i - 1] - 0.5) + 0.3333
+        contributions[:, 3, 3, i] = torch.cos(1.5 * data[:, 3, i - 1] + 0.5)
+
+        data[:, 0, i] += contributions[:, 1, 0, i]
+        data[:, 1, i] += contributions[:, 2, 1, i]
+        data[:, 2, i] += contributions[:, 3, 2, i]
+        data[:, 3, i] += contributions[:, 3, 3, i]
+
+    mu = data.mean(dim=-1, keepdim=True)
+    var = data.std(dim=-1, keepdim=True)
+    data -= mu
+    data /= var
+    contributions -= mu.unsqueeze(dim=1)
+    contributions /= var.unsqueeze(dim=1)
+    contributions = contributions.abs().std(dim=-1)
+
+    data = data[..., warmup:]
+    return data.to(dtype=torch.float32), contributions.to(dtype=torch.float32)
+
+
 if __name__ == '__main__':
-    ds = toy_data_5_nodes_variational().cpu()
-    _range = 700
-    plt.plot(ds[0, 0, :_range], label='0: sigmoid(3)')
-    plt.plot(ds[0, 1, :_range], label='1: sin(0)')
-    plt.plot(ds[0, 2, :_range], label='2: cos(1)')
-    plt.plot(ds[0, 3, :_range], label='3: 0 + 1')
-    plt.plot(ds[0, 4, :_range], label='4: mackey glass')
+    ds, contr = toy_data_chain_noise(noise=1.0, time_steps=2000)
+    ds = ds.cpu()
+    print(contr)
+    _range = 80
+    bs, n_var, time_steps = ds.size()
+    for v in range(n_var-1, -1, -1):
+        plt.plot(ds[0, v, :_range], label=f"var {v}")
     plt.legend()
     plt.show()
+    print()
+
+
+
