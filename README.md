@@ -7,4 +7,4 @@ This repository contains code that is part of my thesis for my master's degree i
 The objective of the thesis is to develop a method for robust causal discovery in time series data using machine learning.
 Please feel free to contact me if you have any questions or suggestions.
 
-The complete thesis is available for access and can be downloaded in PDF format [here](https://github.com/m4urin/temporal-causal-discovery/blob/main/thesis.pdf). This document presents a detailed overview of the research, methodology, and results obtained in this study.
+The complete thesis is available for access and can be downloaded in PDF format [here](https://github.com/m4urin/temporal-causal-discovery/raw/refactor/thesis.pdf). This document presents a detailed overview of the research, methodology, and results obtained in this study.
