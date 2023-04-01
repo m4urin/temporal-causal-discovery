@@ -12,6 +12,27 @@ def normalize(x: torch.Tensor, dim: int):
     return (x - x.mean(dim=dim, keepdim=True)) / x.std(dim=dim, keepdim=True)
 
 
+def cos_sin_features(time_steps: int):
+    x = (2 * torch.pi / (time_steps - 1)) * torch.arange(0, time_steps)
+    x = torch.stack((x.cos(), x.sin()))
+    x = normalize(x, dim=-1)
+    return x
+
+
+def mackey_glass(time_steps: int, warmup: int = 500, reduce: int = 6, noise: float = 0.1,
+                 beta: float = 0.2, gamma: float = 0.1, tau: int = 20, n: int = 10):
+    x = torch.randn(tau + warmup + (time_steps * reduce)) * noise
+
+    for i in range(tau, len(x) - 1):
+        x[i + 1] += (1.0 - gamma) * x[i] + ((beta * x[i - tau]) / (1 + (x[i - tau] ** n)))
+
+    x = x[tau + warmup:]
+    x = x[torch.arange(0, len(x), reduce, dtype=torch.long)]
+    x = x.unsqueeze(dim=0)
+    x = normalize(x, dim=-1)
+    return x
+
+
 def get_causeme_data(experiment):
     """
     :return: Normalized Tensor of size (n_datasets, n_batches, n_nodes, T)
@@ -114,12 +135,13 @@ def toy_data_chain_noise(noise: float, batch_size: int = 1, time_steps: int = 50
     n_variables = 4
     data = torch.randn((batch_size, n_variables, warmup + time_steps))
     data[:, :-1, 1:] *= noise  # noise factor
+    data[:, -1] *= 0.01
     contributions = torch.zeros((batch_size, n_variables, n_variables, warmup + time_steps))
     for i in range(1, warmup + time_steps):
-        contributions[:, 1, 0, i] = 0.5 * (data[:, 1, i - 1] - 0.4) ** 2
-        contributions[:, 2, 1, i] = torch.sin(np.pi * data[:, 2, i - 1].clamp(min=-1.0, max=1.0))
-        contributions[:, 3, 2, i] = torch.sigmoid(2 * data[:, 3, i - 1] - 0.5) + 0.3333
-        contributions[:, 3, 3, i] = torch.cos(1.5 * data[:, 3, i - 1] + 0.5)
+        contributions[:, 1, 0, i] = (data[:, 1, i - 1] - 0.3).clamp(min=-0.3, max=0.3)
+        contributions[:, 2, 1, i] = (-2 * data[:, 2, i - 1] - 0.2).cos()
+        contributions[:, 3, 2, i] = data[:, 3, i - 1].abs()
+        contributions[:, 3, 3, i] = torch.cos(torch.tensor(i)/3) + torch.sin(torch.tensor(i) / 10)
 
         data[:, 0, i] += contributions[:, 1, 0, i]
         data[:, 1, i] += contributions[:, 2, 1, i]
@@ -138,12 +160,28 @@ def toy_data_chain_noise(noise: float, batch_size: int = 1, time_steps: int = 50
     return data.to(dtype=torch.float32), contributions.to(dtype=torch.float32)
 
 
+def toy_data_coupled(batch_size: int = 1, time_steps: int = 500, warmup: int = 200):
+    """
+    :return: Normalized Tensor of size (n_batches, 6_nodes, T), max_lags=8
+    """
+    assert batch_size > 0 and time_steps > 0 and warmup >= 0
+    data = torch.randn((batch_size, 4, warmup + time_steps), dtype=torch.float64) * 0.7
+    for i in range(1, data.size()[-1]):
+        data[:, 0, i] += 0.5 * torch.sigmoid(data[:, 1, i - 1])
+        data[:, 1, i] += data[:, 0, i - 2] * data[:, 2, i - 1]
+        data[:, 2, i] += data[:, 0, i - 1].abs() * torch.tanh(0.5 * data[:, 3, i - 2])
+        data[:, 3, i] += 0.8 * data[:, 3, i-1] + (0.1 / (0.3 + (data[:, 3, i-2] ** 2)))
+
+    data = data[..., warmup:]
+    data = normalize(data, dim=-1)
+    return data.to(device=DEVICE, dtype=torch.float32)
+
+
 if __name__ == '__main__':
-    ds, contr = toy_data_chain_noise(noise=1.0, time_steps=2000)
+    ds = toy_data_coupled(time_steps=2000)
     ds = ds.cpu()
-    print(contr)
     _range = 80
-    bs, n_var, time_steps = ds.size()
+    bs, n_var, T = ds.size()
     for v in range(n_var-1, -1, -1):
         plt.plot(ds[0, v, :_range], label=f"var {v}")
     plt.legend()

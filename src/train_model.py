@@ -27,6 +27,7 @@ def train_model(model_constructor: type[NAVAR], data, epochs, val_proportion, le
                               hidden_dim=2**hidden_dim,
                               lambda1=lambda1,
                               dropout=dropout).to(DEVICE)
+    print('receptive field:', model.get_receptive_field())
 
     optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     train_losses, val_losses = [], []
