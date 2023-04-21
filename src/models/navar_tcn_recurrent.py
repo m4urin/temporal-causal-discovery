@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from src.models.navar import NAVAR
+from src.utils import share_parameters, count_parameters
 
 
 class TemporalBlockGrouped(nn.Module):
@@ -38,19 +39,15 @@ class TemporalBlockGrouped(nn.Module):
         self.out_channels = out_channels
         self.receptive_field = 2 * (kernel_size - 1) * dilation + 1
 
-        self.conv1 = nn.utils.weight_norm(nn.Conv1d(in_channels=num_nodes * in_channels,
-                                                    out_channels=num_nodes * out_channels,
-                                                    kernel_size=kernel_size, stride=1,
-                                                    dilation=dilation, groups=num_nodes))
-        #self.conv2 = nn.utils.weight_norm(nn.Conv1d(in_channels=num_nodes * out_channels,
-        #                                            out_channels=num_nodes * out_channels,
-        #                                            kernel_size=kernel_size, stride=1,
-        #                                            dilation=dilation, groups=num_nodes))
+        self.conv = nn.utils.weight_norm(nn.Conv1d(in_channels=num_nodes * in_channels,
+                                                   out_channels=num_nodes * out_channels,
+                                                   kernel_size=kernel_size, stride=1,
+                                                   dilation=dilation, groups=num_nodes))
 
         pad = nn.ZeroPad2d(((kernel_size - 1) * dilation, 0, 0, 0))
         dropout = nn.Dropout(dropout)
         self.relu = nn.ReLU()
-        self.convolutions = nn.Sequential(pad, self.conv1, self.relu, dropout) #, pad, self.conv2, self.relu, dropout)
+        self.convolutions = nn.Sequential(pad, self.conv, self.relu, dropout)
 
         if in_channels != out_channels:
             self.down_sample = nn.Conv1d(num_nodes * in_channels, num_nodes * out_channels, 1, groups=num_nodes)
@@ -60,8 +57,7 @@ class TemporalBlockGrouped(nn.Module):
         self.init_weights()
 
     def init_weights(self):
-        self.conv1.weight.data.normal_(0, 0.01)
-        #self.conv2.weight.data.normal_(0, 0.01)
+        self.conv.weight.data.normal_(0, 0.01)
         if self.down_sample is not None:
             self.down_sample.weight.data.normal_(0, 0.01)
 
@@ -78,8 +74,8 @@ class TemporalBlockGrouped(nn.Module):
         return x.view(bs, self.num_nodes, self.out_channels, -1)
 
 
-class TemporalConvNetGrouped(nn.Module):
-    def __init__(self, num_nodes: int, channels: Tuple[int, ...], kernel_size: int, dropout: float = 0.0):
+class RecurrentTemporalConvNetGrouped(nn.Module):
+    def __init__(self, num_nodes: int, channels: Tuple[int, ...], n_layers: int, kernel_size: int, dropout: float = 0.0):
         """
         Temporal Convolutional Network (TCN) with grouped convolutions.
         Adjusted from https://www.kaggle.com/code/ceshine/pytorch-temporal-convolutional-networks/script
@@ -100,18 +96,22 @@ class TemporalConvNetGrouped(nn.Module):
             dropout:
                 Dropout probability of units in hidden layers
             """
-        super(TemporalConvNetGrouped, self).__init__()
-        n_layers = len(channels)
+        super(RecurrentTemporalConvNetGrouped, self).__init__()
+        assert n_layers >= len(channels)
         self.receptive_field = 2 * (kernel_size - 1) * (2 ** n_layers - 1) + 1
 
         channels = [1] + list(channels)
         temporal_blocks = []
-        for i in range(n_layers):
+        for i in range(len(channels)):
             temporal_blocks += [TemporalBlockGrouped(num_nodes=num_nodes, in_channels=channels[i],
                                                      out_channels=channels[i + 1], kernel_size=kernel_size,
                                                      dilation=2 ** i, dropout=dropout)]
-        self.temporal_blocks = nn.Sequential(*temporal_blocks)
+        for i in range(len(channels), n_layers):
+            temporal_blocks += [TemporalBlockGrouped(num_nodes=num_nodes, in_channels=channels[-1],
+                                                     out_channels=channels[-1], kernel_size=kernel_size,
+                                                     dilation=2 ** i, dropout=dropout)]
 
+        self.temporal_blocks = nn.Sequential(*temporal_blocks)
         self.init_weights()
 
     def init_weights(self):
@@ -151,8 +151,8 @@ class NAVAR_TCN(NAVAR):
                 Dropout probability of units in hidden layers
         """
         super(NAVAR_TCN, self).__init__(num_nodes, kernel_size, n_layers, hidden_dim, lambda1, dropout)
-        self.tcn = TemporalConvNetGrouped(num_nodes=num_nodes, channels=(hidden_dim,) * n_layers,
-                                          kernel_size=kernel_size, dropout=dropout)
+        self.tcn = RecurrentTemporalConvNetGrouped(num_nodes=num_nodes, channels=(hidden_dim,) * n_layers,
+                                                   kernel_size=kernel_size, dropout=dropout)
 
         # This implements a stacked version of nn.Linear that will be computed in parallel on the GPU
         # with use of torch.einsum
@@ -221,15 +221,43 @@ class NAVAR_TCN(NAVAR):
 if __name__ == '__main__':
     # For testing purposes
 
-    from definitions import DEVICE
-    from src.utils import count_parameters
-    NUM_NODES = 1
-    model = NAVAR_TCN(num_nodes=NUM_NODES, kernel_size=2, n_layers=8, hidden_dim=64, dropout=0.2, lambda1=0.2).to(DEVICE)
-    data = torch.rand((1, NUM_NODES, 300), device=DEVICE)  # batch_size=1, num_nodes=5, time_steps=300
-    predictions_, contributions_ = model(data)
+    t0 = TemporalBlockGrouped(num_nodes=3, in_channels=16, out_channels=16, kernel_size=2, dilation=4, dropout=0.1)
+    t1 = TemporalBlockGrouped(num_nodes=3, in_channels=16, out_channels=16, kernel_size=2, dilation=8, dropout=0.1)
+    for m in [t0, t1]:
+        for k, v in m.state_dict().items():
+            print(k, v.size())
+        print('\n=====================\n')
 
-    print(model)
-    print(f"\nn_parameters_per_node={count_parameters(model) // NUM_NODES}"
-          f"\nreceptive_field={model.receptive_field}"
-          f"\npredictions={predictions_.size()}"
-          f"\ncontributions={contributions_.size()}")
+    print('params t0', count_parameters(t0))
+    print('params t1', count_parameters(t1))
+    mymodel = nn.Module()
+    mymodel.t0 = t0
+    mymodel.t1 = t1
+    print('params my_model', count_parameters(mymodel))
+    print('dilation t0', t0.conv.dilation)
+    print('dilation t1', t1.conv.dilation)
+    print(t0.conv.bias.data[:10])
+    print(t1.conv.bias.data[:10])
+    t0.conv.bias.data[0] = 4.0
+    print(t0.conv.bias.data[:10])
+    print(t1.conv.bias.data[:10])
+
+    print("\n================================\n")
+
+    t0 = TemporalBlockGrouped(num_nodes=3, in_channels=16, out_channels=16, kernel_size=2, dilation=4, dropout=0.1)
+    t1 = TemporalBlockGrouped(num_nodes=3, in_channels=16, out_channels=16, kernel_size=2, dilation=8, dropout=0.1)
+    share_parameters(t0, t1)
+
+    print('params t0', count_parameters(t0))
+    print('params t1', count_parameters(t1))
+    mymodel = nn.Module()
+    mymodel.t0 = t0
+    mymodel.t1 = t1
+    print('params my_model', count_parameters(mymodel))
+    print('dilation t0', t0.conv.dilation)
+    print('dilation t1', t1.conv.dilation)
+    print(t0.conv.bias.data[:10])
+    print(t1.conv.bias.data[:10])
+    t0.conv.bias.data[0] = 4.0
+    print(t0.conv.bias.data[:10])
+    print(t1.conv.bias.data[:10])

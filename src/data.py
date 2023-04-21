@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 
 from definitions import DEVICE, DATA_DIR
-from src.utils import join
+from src.utils import join_path
 
 
 def normalize(x: torch.Tensor, dim: int):
@@ -37,7 +37,7 @@ def get_causeme_data(experiment):
     """
     :return: Normalized Tensor of size (n_datasets, n_batches, n_nodes, T)
     """
-    file_path = join(DATA_DIR, f"{experiment.split('.zip')[0]}.zip", make_dirs=False)
+    file_path = join_path(DATA_DIR, f"{experiment.split('.zip')[0]}.zip", make_dirs=False)
     with zipfile.ZipFile(file_path, "r") as f:
         # array with (n_exp, T, n_var)
         data = np.stack([np.loadtxt(f.open(name)) for name in sorted(f.namelist())])

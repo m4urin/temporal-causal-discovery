@@ -12,7 +12,7 @@ from tqdm import trange
 from definitions import DEVICE, RESULTS_DIR, SETTINGS_DIR
 from src.data import get_causeme_data
 from src.models.navar_tcn import NAVAR_TCN
-from src.utils import pretty_number, ProgressWriter, read_json, trange_print, write_bz2
+from src.utils import pretty_number, ProgressWriter, load_json_file, trange_print, save_bz2_file
 
 
 
@@ -71,11 +71,11 @@ def run_experiment(experiment):
     print(f'Load CauseMe data..')
     data = get_causeme_data(experiment)  # torch.Size([200, 1, 3, 300])
 
-    settings = read_json(os.path.join(SETTINGS_DIR, 'experiments.json'))[experiment]
+    settings = load_json_file(os.path.join(SETTINGS_DIR, 'experiments.json'))[experiment]
 
     if settings['max_evals'] < 1:
         print(f"Use default parameters..")
-        best_params = read_json(os.path.join(SETTINGS_DIR, 'default_parameters.json'))
+        best_params = load_json_file(os.path.join(SETTINGS_DIR, 'default_parameters.json'))
     else:
         best_params = run_hyperopt(data=data, **settings)
 
@@ -96,6 +96,6 @@ def run_experiment(experiment):
     del best_params['val_proportion']
     result["parameter_values"] = ", ".join([f"{k}={pretty_number(v)}" for k, v in best_params.items()])
 
-    write_bz2(os.path.join(RESULTS_DIR, f'{experiment}.json.bz2'), result)
+    save_bz2_file(os.path.join(RESULTS_DIR, f'{experiment}.json.bz2'), result)
 
     print(f'Successfully ran experiment: {experiment}')

@@ -43,7 +43,7 @@ class NAVAR(nn.Module):
 
 
 def test_model(model_constructor: type(NAVAR)):
-    from src.utils import count_params
+    from src.utils import count_parameters
     batch_size = 1
     time_steps = 100
     num_nodes = 5
@@ -59,7 +59,7 @@ def test_model(model_constructor: type(NAVAR)):
     evaluation = model.evaluate(x, monte_carlo_dropout=10, sample=False)
 
     print(model, '\n')
-    print(f"n_parameters_per_node={count_params(model) // 5}")
+    print(f"n_parameters_per_node={count_parameters(model) // 5}")
     print(f"receptive_field={model.get_receptive_field()}")
     print(f"data size={x.size()}")
     print(f"loss={loss}")

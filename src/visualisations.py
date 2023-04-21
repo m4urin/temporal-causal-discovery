@@ -6,7 +6,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from definitions import RESULTS_DIR
-from src.utils import join
+from src.utils import join_path
 
 
 def draw_causal_matrix(causal_matrix, threshold=0.02, draw_weights=True, save_fig=None, pos=None, title=None):
@@ -61,7 +61,7 @@ def draw_causal_matrix(causal_matrix, threshold=0.02, draw_weights=True, save_fi
         plt.title(title)
 
     if save_fig is not None:
-        plt.savefig(join(RESULTS_DIR, save_fig))
+        plt.savefig(join_path(RESULTS_DIR, save_fig))
     else:
         plt.show()
     plt.clf()
@@ -69,6 +69,32 @@ def draw_causal_matrix(causal_matrix, threshold=0.02, draw_weights=True, save_fi
     return pos
 
 
+def plot_multiple_timeseries(data, title=None, names=None, x_label=None):
+    plt.clf()
+    k = len(data)
+    fig, axs = plt.subplots(k, 1, figsize=(8, 6), sharex=True)
+    for i in range(k):
+        axs[i].plot(data[i])
+        if names is not None:
+            axs[i].set_ylabel(names[i])
+    # Set the x-axis label for the bottom subplot
+    axs[-1].set_xlabel("Time" if x_label is None else x_label)
+
+    # Add a title to the figure
+    if title is not None:
+        fig.suptitle(title)
+
+    # Adjust the spacing between subplots
+    fig.subplots_adjust(hspace=0.2)
+    # Show the plot
+    plt.show()
+
+
 if __name__ == '__main__':
-    my_causal_matrix = [[0.1, 0.0, 0.002, 0.5], [0.9, 0.0, 0.9, 0.0], [0.0, 0.4, 0.1, 0.3], [0.0, 0.1, 0.0, 0.7]]
-    draw_causal_matrix(my_causal_matrix, draw_weights=False, threshold=0.0, save_fig='plots/test_graph.png')
+    _data = [[0, 1, 2, 3, 2, 3, 2], [6, 6, 6, 3, 3, 3, 6, 6, 6], [[1, 2], [4, 4], [8, 6], [9, 7]]]
+    plot_multiple_timeseries(_data, names=['cool', 'plot', 'dude'], x_label='years', title="test")
+
+
+
+    #my_causal_matrix = [[0.1, 0.0, 0.002, 0.5], [0.9, 0.0, 0.9, 0.0], [0.0, 0.4, 0.1, 0.3], [0.0, 0.1, 0.0, 0.7]]
+    #draw_causal_matrix(my_causal_matrix, draw_weights=False, threshold=0.0, save_fig='plots/test_graph.png')
