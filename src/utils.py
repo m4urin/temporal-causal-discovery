@@ -231,7 +231,7 @@ def short_number(x, significant_numbers=3):
 
     # Round x to the desired number of significant digits
     num_left_digits = max(0, significant_numbers - int(math.floor(math.log10(abs(x)))) - 1)
-    rounded_x = round(x, num_left_digits)
+    rounded_x = str(round(x, num_left_digits))
 
     # Choose the shortest string representation of x
     return min([default_str, rounded_x, short_scientific_notation(x, 2)], key=len)
@@ -301,5 +301,4 @@ def trange_mode(total: int, mode: str, desc: str = None):
 
 if __name__ == '__main__':
     for i in [234876234, 0.00002034, 12312.1892439234239, 0, 0.1]:
-        print(short_scientific_notation(i, 3))
-        print(short_scientific_notation(i, 3))
+        print(short_number(i, 3))
