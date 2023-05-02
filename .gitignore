@@ -3,6 +3,7 @@
 test/
 results/
 test0.py
+tests/*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
