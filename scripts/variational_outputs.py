@@ -2,7 +2,7 @@ from matplotlib import pyplot as plt
 
 from definitions import DEVICE
 from src.data import toy_data_5_nodes_variational
-from src.models.navar_variational import NAVAR_Variational
+from src.models.old.navar_variational import NAVAR_Variational
 from src.train_model import train_model
 
 print(DEVICE)

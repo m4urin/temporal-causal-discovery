@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 
 from definitions import DEVICE, DATA_DIR
-from src.utils import join_path
+from src.utils2 import join_path
 
 
 def normalize(x: torch.Tensor, dim: int):

@@ -4,8 +4,8 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 
-from src.models.navar import NAVAR
-from src.utils import share_parameters, count_parameters
+from src.models.old.navar import NAVAR
+from src.utils2 import share_parameters, count_parameters
 
 
 class TemporalBlockGrouped(nn.Module):

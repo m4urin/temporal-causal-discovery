@@ -6,7 +6,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from definitions import RESULTS_DIR
-from src.utils import join_path
+from src.utils2 import join_path
 
 
 def draw_causal_matrix(causal_matrix, threshold=0.02, draw_weights=True, save_fig=None, pos=None, title=None):

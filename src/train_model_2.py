@@ -3,31 +3,22 @@ import torch
 from matplotlib import pyplot as plt
 from torch.optim import AdamW
 
-from definitions import DEVICE
-from src.models.old.navar import NAVAR
-from src.utils2 import iter_with_progress
+from src.utils.progress import iter_with_progress
 
 
-def train_model(model_constructor: type[NAVAR], data, epochs, val_proportion, learning_rate, lambda1,
-                dropout, weight_decay, kernel_size, n_layers, hidden_dim,
-                show_progress='tqdm', show_plot=False):
-    assert show_progress in ['tqdm', 'console']
-    # data: torch.Size([bs, num_nodes, T])
-    bs, num_nodes, time_steps = data.size()
-    n_test = int(val_proportion * time_steps)
-    n_train = time_steps - n_test
-    check_every = 50
+def train_model(model, data, epochs, val_proportion, learning_rate, weight_decay, show_plot=False):
 
-    if hidden_dim > 8:
-        raise Exception("hidden_dim should be <= 8, because hidden size is equal to 2^hidden_dim")
+    # data is of size (batch_size, num_variables, sequence_length)
+    batch_size, num_variables, sequence_length = data.size()
 
-    model = model_constructor(num_nodes=num_nodes,
-                              kernel_size=kernel_size,
-                              n_layers=n_layers,
-                              hidden_dim=2**hidden_dim,
-                              lambda1=lambda1,
-                              dropout=dropout).to(DEVICE)
-    print('receptive field:', model.get_receptive_field())
+    n_test = int(val_proportion * sequence_length)
+    n_train = sequence_length - n_test
+    check_every = 30
+
+    # to gpu if it is available
+    if torch.cuda.is_available():
+        model = model.cuda()
+        data = data.cuda()
 
     optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     train_losses, val_losses = [], []
@@ -35,10 +26,12 @@ def train_model(model_constructor: type[NAVAR], data, epochs, val_proportion, le
     x_train, y_train = data[..., :n_train - 1], data[..., 1:n_train]
     x_val, y_val = data[..., n_train:-1], data[..., n_train + 1:]
 
+    train_data = data[..., :n_train], test_data = data[..., n_train:]
+
     model.train()
-    for i in iter_with_progress(epochs, show_progress):
+    for i in iter_with_progress(epochs):
         # predictions, contributions: (bs, num_nodes, time_steps), (bs, num_nodes, num_nodes, time_steps)
-        loss = model.get_loss(x_train, y_train)
+        result = model(train_data)
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()

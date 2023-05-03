@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 
-from src.models.navar import NAVAR
+from src.models.old.navar import NAVAR
 
 
 class TemporalBlockGrouped(nn.Module):
@@ -222,7 +222,7 @@ if __name__ == '__main__':
     # For testing purposes
 
     from definitions import DEVICE
-    from src.utils import count_parameters
+    from src.utils2 import count_parameters
     NUM_NODES = 1
     model = NAVAR_TCN(num_nodes=NUM_NODES, kernel_size=2, n_layers=8, hidden_dim=64, dropout=0.2, lambda1=0.2).to(DEVICE)
     data = torch.rand((1, NUM_NODES, 300), device=DEVICE)  # batch_size=1, num_nodes=5, time_steps=300

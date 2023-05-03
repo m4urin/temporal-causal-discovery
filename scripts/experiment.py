@@ -1,18 +1,12 @@
 import os
 
 import numpy as np
-import torch
 from hyperopt import hp, fmin, tpe, space_eval, STATUS_OK, Trials
 from hyperopt.pyll import scope
-from matplotlib import pyplot as plt
-from torch import nn
-from torch.optim import AdamW
-from tqdm import trange
 
-from definitions import DEVICE, RESULTS_DIR, SETTINGS_DIR
+from definitions import RESULTS_DIR, SETTINGS_DIR
 from src.data import get_causeme_data
-from src.models.navar_tcn import NAVAR_TCN
-from src.utils import pretty_number, ProgressWriter, load_json_file, trange_print, save_bz2_file
+from src.utils2 import pretty_number, ProgressWriter, load_json_file, trange_print, save_bz2_file
 
 
 

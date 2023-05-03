@@ -6,6 +6,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results')
 SETTINGS_DIR = os.path.join(PROJECT_ROOT, 'settings')
+TEST_DIR = os.path.join(PROJECT_ROOT, 'tests')
 
 """ pytorch """
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

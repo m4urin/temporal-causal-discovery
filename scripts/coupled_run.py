@@ -1,7 +1,7 @@
 import torch
 
 from src.data import toy_data_coupled
-from src.models.navar_small import NAVAR_SMALL
+from src.models.old.navar_small import NAVAR_SMALL
 from src.train_model import train_model
 from src.visualisations import draw_causal_matrix
 

@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-from torch import Tensor
 
-from src.models.navar import NAVAR, test_model
+from src.models.old.navar import NAVAR, test_model
 
 
 class NAVAR_Variational(NAVAR):
