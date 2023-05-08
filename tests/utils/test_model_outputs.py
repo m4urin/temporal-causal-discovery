@@ -1,6 +1,5 @@
 import unittest
-import torch
-from src.utils.model_outputs import *
+from src.models.model_outputs import *
 
 
 class TestModelOutputs(unittest.TestCase):

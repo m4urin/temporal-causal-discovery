@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 
-from src.utils.model_outputs import ModelOutput, ModelResult
+from src.models.model_outputs import ModelOutput, ModelResult
 
 
 class TemporalCausalModel(nn.Module):

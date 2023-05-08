@@ -1,8 +1,7 @@
 import unittest
-import torch
 
 from src.models.temporal_causal_model import *
-from src.utils.model_outputs import *
+from src.models.model_outputs import *
 
 
 class TestTemporalCausalModel(unittest.TestCase):

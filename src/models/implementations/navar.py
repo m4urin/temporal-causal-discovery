@@ -6,8 +6,8 @@ from hyperopt.pyll import scope
 
 from src.models.modules.depthwise_separable_tcn import DepthwiseSeparableTCN
 from src.models.temporal_causal_model import TemporalCausalModel
-from src.utils.eval import monte_carlo_dropout
-from src.utils.model_outputs import ModelOutput, ModelResult
+from src.eval.monte_carlo import monte_carlo_dropout
+from src.models.model_outputs import ModelOutput, ModelResult
 from src.utils.progress import iter_batched
 
 

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Generator, Iterable
+from typing import Generator
 
 from tqdm import trange
 
@@ -161,9 +161,8 @@ def iter_batched(data, max_batch_size: int, show_progress: bool = False, desc: s
     if not show_progress and desc is not None:
         print(desc)
 
-    generator = iter_with_progress(iterations, desc) if show_progress else range(iterations)
     # Split the data into batches of max_batch_size and yield each batch
-    for i in generator:
+    for i in iter_with_progress(iterations, show_progress, desc):
         yield data[i * max_batch_size: (i + 1) * max_batch_size]
 
 

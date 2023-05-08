@@ -3,9 +3,9 @@ from definitions import RESULTS_DIR
 from src.data.dataset import Dataset
 from src.models.temporal_causal_model import TemporalCausalModel
 from src.utils.io import join_paths
-from src.utils.model_outputs import EvaluationResult, TrainResult
+from src.models.model_outputs import EvaluationResult, TrainResult
 from src.utils.progress import iter_with_progress
-from src.utils.config import ModelConfig, TrainConfig
+from src.models.model_config import ModelConfig, TrainConfig
 from src.utils.visualisations import plot_train_val_loss
 
 
@@ -17,14 +17,14 @@ def train_model(dataset: Dataset, model_config: ModelConfig,
     Args:
         data (torch.Tensor): The input data, of size (batch_size, num_variables, sequence_length).
         model_config (ModelConfig): The configuration object for the model.
-        train_config (TrainConfig): The configuration object for the training process.
+        train_config (TrainConfig): The configuration object for the experiments process.
         show_progress: TODO
 
     Returns:
-        EvaluationResult: The evaluation result object containing the trained model, its performance, and the training configuration.
+        EvaluationResult: The evaluation result object containing the trained model, its performance, and the experiments configuration.
     """
 
-    # Split data into training and validation sets
+    # Split data into experiments and validation sets
     n_test = int(train_config.val_proportion * dataset.sequence_length)
     n_train = dataset.sequence_length - n_test
 
@@ -44,14 +44,14 @@ def train_model(dataset: Dataset, model_config: ModelConfig,
                                        lr=train_config.learning_rate,
                                        weight_decay=train_config.weight_decay)
 
-    # Define lists to store the training and validation losses
+    # Define lists to store the experiments and validation losses
     train_losses, val_losses = [], []
 
-    # Split data into training and validation sets
+    # Split data into experiments and validation sets
     train_data = dataset[..., :n_train]
     test_data = dataset[..., n_train:]
 
-    # Set the model to training mode
+    # Set the model to experiments mode
     model.train()
 
     # Train the model
@@ -64,7 +64,7 @@ def train_model(dataset: Dataset, model_config: ModelConfig,
         optimizer.step()
         optimizer.zero_grad()
 
-        # Store the training loss
+        # Store the experiments loss
         train_losses.append(loss.item())
 
         # Test the model on the validation set
@@ -75,12 +75,12 @@ def train_model(dataset: Dataset, model_config: ModelConfig,
                 val_losses.append(model(test_data.data).get_loss().item())
             model.train()
 
-    # Plot the training and validation losses
+    # Plot the experiments and validation losses
     plot_train_val_loss(train_losses, val_losses, test_every,
                         path=join_paths(RESULTS_DIR, f'training_img/{model_config.url}.png',
                                         make_dirs=True))
 
-    # Evaluate the model on the training data
+    # Evaluate the model on the experiments data
     with torch.no_grad():
         model_result = model.get_result(train_data.data)
         train_result = TrainResult(model.cpu(), train_losses, val_losses)

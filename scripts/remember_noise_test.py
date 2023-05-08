@@ -2,7 +2,7 @@ import torch
 
 from definitions import DEVICE
 from src.models.implementations.navar_tcn import NAVAR_TCN
-from src.training.train_model import train_model
+from src.experiments.train_model import train_model
 from src.utils2 import count_parameters
 from src.utils.visualisations import draw_causal_matrix, plot_multiple_timeseries
 

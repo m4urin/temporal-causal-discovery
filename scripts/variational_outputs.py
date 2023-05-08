@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 from definitions import DEVICE
 from src.data.dataset import toy_data_5_nodes_variational
 from src.models.implementations.navar_variational import NAVAR_Variational
-from src.training.train_model import train_model
+from src.experiments.train_model import train_model
 
 print(DEVICE)
 #DEVICE = 'cpu'
