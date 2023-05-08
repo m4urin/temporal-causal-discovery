@@ -1,10 +1,10 @@
 import torch
 
 from definitions import DEVICE
-from src.models.old.navar_tcn import NAVAR_TCN
-from src.train_model import train_model
+from src.models.implementations.navar_tcn import NAVAR_TCN
+from src.training.train_model import train_model
 from src.utils2 import count_parameters
-from src.visualisations import draw_causal_matrix, plot_multiple_timeseries
+from src.utils.visualisations import draw_causal_matrix, plot_multiple_timeseries
 
 
 def run_experiment():
@@ -16,11 +16,11 @@ def run_experiment():
     print("loss:", _loss)
 
     true_data = ds[0, :, 1:].cpu()  # (3, 499)
-    pred_data = result[0].mean(dim=(0, 1))[:-1].t().cpu()  # (3, 499)
+    pred_data = result[0].matrix(dim=(0, 1))[:-1].t().cpu()  # (3, 499)
     plot_data = torch.stack((true_data, pred_data), dim=-1)
     plot_multiple_timeseries(plot_data, title="Remember noise", names=[f"Var {j+1}" for j in range(len(plot_data))])
 
-    return result[1].mean(dim=(0, 1)), _loss
+    return result[1].matrix(dim=(0, 1)), _loss
 
 
 pos = None

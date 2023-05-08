@@ -1,4 +1,9 @@
 import math
+import numbers
+
+import torch
+
+from src.data.dataset import Dataset
 
 
 def short_scientific_notation(x, decimals=2):
@@ -34,12 +39,12 @@ def short_scientific_notation(x, decimals=2):
     return mantissa + 'e' + exponent_str
 
 
-def short_number(x, significant_numbers=3):
+def short_number(x: numbers.Number, significant_numbers=4):
     """
     Converts a number to a short string representation with a maximum number of significant digits.
 
     Args:
-        x (float): The number to be converted.
+        x (Number): The number to be converted.
         significant_numbers (int): The maximum number of significant digits.
 
     Returns:
@@ -51,6 +56,7 @@ def short_number(x, significant_numbers=3):
 
     # Save the default string representation of x
     default_str = str(x)
+    x = float(x)
 
     # Round x to the desired number of significant digits
     num_left_digits = max(0, significant_numbers - int(math.floor(math.log10(abs(x)))) - 1)
@@ -62,3 +68,23 @@ def short_number(x, significant_numbers=3):
     if result.endswith('.0'):
         return result[:-2]
     return result
+
+
+def dict_to_url(d: dict):
+    d_str = {}
+    for k in list(d.keys()):
+        v = d[k]
+        if isinstance(v, numbers.Number):
+            d_str[k] = short_number(v)
+        elif isinstance(v, type):
+            d_str[k] = v.__name__
+        elif isinstance(v, Dataset):
+            if v.name is not None:
+                d_str['experiment'] = v.name
+            d_str['batch_size'] = v.batch_size
+            d_str['num_variables'] = v.num_variables
+            d_str['sequence_length'] = v.sequence_length
+        elif isinstance(v, torch.Tensor):
+            d_str[k] = str(v.size()).split('.')[1]
+
+    return ", ".join([f"{k}={v}" for k, v in d_str.items()])

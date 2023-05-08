@@ -1,9 +1,9 @@
 import torch
 
-from src.data import toy_data_coupled
-from src.models.old.navar_small import NAVAR_SMALL
-from src.train_model import train_model
-from src.visualisations import draw_causal_matrix
+from src.data.dataset import toy_data_coupled
+from src.models.implementations.navar import NAVAR_SMALL
+from src.training.train_model import train_model
+from src.utils.visualisations import draw_causal_matrix
 
 
 def run_experiment():
@@ -14,7 +14,7 @@ def run_experiment():
     model, _loss, _, result = train_model(NAVAR_SMALL, data=ds, epochs=2000, val_proportion=0.0, learning_rate=1e-4,
                                           lambda1=0.7, dropout=0.2, weight_decay=1e-4, kernel_size=4, n_layers=1,
                                           hidden_dim=8, show_progress='tqdm', show_plot=False)
-    return result[1].mean(dim=(0, 1)), _loss
+    return result[1].matrix(dim=(0, 1)), _loss
 
 
 pos = None

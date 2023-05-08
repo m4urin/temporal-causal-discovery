@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 
-from src.models.old.navar import NAVAR
+from src.models.implementations.navar import NAVAR
 
 
 class TemporalBlockGrouped(nn.Module):
@@ -63,7 +63,7 @@ class TemporalBlockGrouped(nn.Module):
         self.conv1.weight.data.normal_(0, 0.01)
         #self.conv2.weight.data.normal_(0, 0.01)
         if self.down_sample is not None:
-            self.down_sample.weight.data.normal_(0, 0.01)
+            self.down_sample.weight.matrix.normal_(0, 0.01)
 
     def forward(self, x: torch.Tensor):
         """
@@ -128,7 +128,7 @@ class TemporalConvNetGrouped(nn.Module):
 
 
 class NAVAR_TCN(NAVAR):
-    def __init__(self, num_nodes: int, kernel_size: int, n_layers: int, hidden_dim: int, lambda1: float, dropout: float = 0.0):
+    def __init__(self, num_variables: int, kernel_size: int, n_layers: int, hidden_dim: int, lambda1: float, dropout: float = 0.0):
         """
         Neural Additive Vector AutoRegression (NAVAR) model using a
         Temporal Convolutional Network (TCN) with grouped convolutions.
@@ -138,7 +138,7 @@ class NAVAR_TCN(NAVAR):
         -> (batch_size, num_nodes, time_steps), (batch_size, num_nodes, num_nodes, time_steps)
 
         Args:
-            num_nodes:
+            num_variables:
                 The number of variables / time series (N)
             kernel_size:
                 Kernel_size used by the TCN
@@ -150,16 +150,16 @@ class NAVAR_TCN(NAVAR):
             dropout: float
                 Dropout probability of units in hidden layers
         """
-        super(NAVAR_TCN, self).__init__(num_nodes, kernel_size, n_layers, hidden_dim, lambda1, dropout)
-        self.tcn = TemporalConvNetGrouped(num_nodes=num_nodes, channels=(hidden_dim,) * n_layers,
+        super(NAVAR_TCN, self).__init__(num_variables, kernel_size, n_layers, hidden_dim, lambda1, dropout)
+        self.tcn = TemporalConvNetGrouped(num_nodes=num_variables, channels=(hidden_dim,) * n_layers,
                                           kernel_size=kernel_size, dropout=dropout)
 
         # This implements a stacked version of nn.Linear that will be computed in parallel on the GPU
         # with use of torch.einsum
         # The nn.Linear() equivalent: [nn.Linear(hidden_dim, num_nodes, bias=False) for _ in range(num_nodes)]
-        self.contributions = nn.Parameter(torch.empty((num_nodes, num_nodes, hidden_dim)))
+        self.contributions = nn.Parameter(torch.empty((num_variables, num_variables, hidden_dim)))
 
-        self.biases = nn.Parameter(torch.zeros(num_nodes, 1))
+        self.biases = nn.Parameter(torch.zeros(num_variables, 1))
 
         # store in dict, so it will show in the architecture when using print()
         self.output = nn.ParameterDict({'contributions': self.contributions, 'biases': self.biases})
@@ -197,9 +197,9 @@ class NAVAR_TCN(NAVAR):
         #print(x.size(), y.size())
         predictions, contributions = self.forward(x)
         #print(predictions.size())
-        regression_loss = ((predictions - y) ** 2).mean()
-        regularization_loss = contributions.abs().sum(dim=(1, 2)).mean()
-        return regression_loss + (self.lambda1 / self.num_nodes) * regularization_loss
+        regression_loss = ((predictions - y) ** 2).matrix()
+        regularization_loss = contributions.abs().sum(dim=(1, 2)).matrix()
+        return regression_loss + (self.lambda1 / self.num_variables) * regularization_loss
 
     def evaluate(self, x: torch.Tensor, monte_carlo_dropout: int = None, **kwargs):
         if monte_carlo_dropout is None:
@@ -224,7 +224,7 @@ if __name__ == '__main__':
     from definitions import DEVICE
     from src.utils2 import count_parameters
     NUM_NODES = 1
-    model = NAVAR_TCN(num_nodes=NUM_NODES, kernel_size=2, n_layers=8, hidden_dim=64, dropout=0.2, lambda1=0.2).to(DEVICE)
+    model = NAVAR_TCN(num_variables=NUM_NODES, kernel_size=2, n_layers=8, hidden_dim=64, dropout=0.2, lambda1=0.2).to(DEVICE)
     data = torch.rand((1, NUM_NODES, 300), device=DEVICE)  # batch_size=1, num_nodes=5, time_steps=300
     predictions_, contributions_ = model(data)
 

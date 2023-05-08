@@ -5,7 +5,7 @@ from src.models.modules.residual_temporal_block import *
 
 class TestResidualTemporalBlock(unittest.TestCase):
     def setUp(self):
-        self.rtb = ResidualTemporalBlock(10, 20,
+        self.rtb = ResidualTemporalBlock(10, 20, 1,
                                 nn.Conv1d(10, 20, kernel_size=3, padding=1),
                                 nn.BatchNorm1d(20),
                                 nn.ReLU(),

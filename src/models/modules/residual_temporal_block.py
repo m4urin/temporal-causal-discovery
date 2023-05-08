@@ -1,15 +1,18 @@
 import torch
 import torch.nn as nn
 
+from src.models.modules.downsample import DownSample
+
 
 class ResidualTemporalBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, *modules):
+    def __init__(self, in_channels, out_channels, groups, *modules):
         """
         A PyTorch module that implements a series of residual modules with skip connection between modules.
 
         Args:
             in_channels (int): The number of input channels.
             out_channels (int): The number of output channels.
+            groups (int): The number of groups.
             *modules (nn.Module): A variable-length list of PyTorch Modules that implement residual modules.
         """
         super().__init__()
@@ -20,13 +23,7 @@ class ResidualTemporalBlock(nn.Module):
         self.block = nn.Sequential(*modules)
 
         # Create downsample branch if input and output channels differ
-        if in_channels != out_channels:
-            self.downsample = nn.Sequential(
-                nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False),
-                nn.BatchNorm1d(out_channels)
-            )
-        else:
-            self.downsample = None
+        self.downsample = DownSample(in_channels, out_channels, groups=groups) if in_channels != out_channels else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -52,36 +49,3 @@ class ResidualTemporalBlock(nn.Module):
         x += identity
 
         return x
-
-
-def test():
-    """
-    Tests the functionality of the ResidualTemporalBlock class.
-    """
-    # Create a ResidualTemporalBlock with 3 residual modules
-    rtb = ResidualTemporalBlock(10, 20,
-                                nn.Conv1d(10, 20, kernel_size=3, padding=1),
-                                nn.BatchNorm1d(20),
-                                nn.ReLU(),
-                                nn.Conv1d(20, 20, kernel_size=3, padding=1),
-                                nn.BatchNorm1d(20),
-                                nn.ReLU(),
-                                nn.Conv1d(20, 20, kernel_size=3, padding=1),
-                                nn.BatchNorm1d(20),
-                                nn.ReLU())
-    print(rtb)
-
-    # Create a random input tensor
-    x = torch.randn(32, 10, 100)
-
-    # Compute the output of the ResidualTemporalBlock
-    y = rtb(x)
-
-    # Check that the output has the correct shape
-    assert y.shape == (32, 20, 100)
-
-    print("Test passed!")
-
-
-if __name__ == '__main__':
-    test()

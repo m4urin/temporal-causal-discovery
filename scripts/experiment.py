@@ -5,7 +5,7 @@ from hyperopt import hp, fmin, tpe, space_eval, STATUS_OK, Trials
 from hyperopt.pyll import scope
 
 from definitions import RESULTS_DIR, SETTINGS_DIR
-from src.data import get_causeme_data
+from src.data.dataset import get_causeme_data
 from src.utils2 import pretty_number, ProgressWriter, load_json_file, trange_print, save_bz2_file
 
 

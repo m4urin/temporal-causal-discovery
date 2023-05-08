@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Generator
+from typing import Generator, Iterable
 
 from tqdm import trange
 
@@ -123,7 +123,7 @@ def use_console(flag: bool):
     USE_CONSOLE = flag
 
 
-def iter_with_progress(total: int, desc: str = None) -> Generator:
+def iter_with_progress(total: int, show_progress=True, desc: str = None) -> Generator:
     """
     A generator function that yields numbers from 0 to `total` while displaying progress updates.
 
@@ -132,16 +132,39 @@ def iter_with_progress(total: int, desc: str = None) -> Generator:
             The maximum number to iterate up to (exclusive).
         desc : str, optional
             Description of the progress updates.
+        show_progress: TODO
 
     Returns:
         A generator that yields numbers from 0 to `total` while displaying progress updates.
     """
-    if USE_CONSOLE:
-        for i in trange_print(total=total, desc=desc):
-            yield i
+    if show_progress:
+        if USE_CONSOLE:
+            for i in trange_print(total=total, desc=desc):
+                yield i
+        else:
+            for i in trange(total, desc=desc):
+                yield i
     else:
-        for i in trange(total, desc=desc):
+        for i in range(total):
             yield i
+
+
+def iter_batched(data, max_batch_size: int, show_progress: bool = False, desc: str = None):
+    """
+    This function takes an iterable of data and splits it into batches of a given size.
+    """
+    # Calculate the number of iterations required to process all data
+    iterations = len(data) // max_batch_size
+    if len(data) % max_batch_size != 0:
+        iterations += 1
+
+    if not show_progress and desc is not None:
+        print(desc)
+
+    generator = iter_with_progress(iterations, desc) if show_progress else range(iterations)
+    # Split the data into batches of max_batch_size and yield each batch
+    for i in generator:
+        yield data[i * max_batch_size: (i + 1) * max_batch_size]
 
 
 def test():
@@ -188,6 +211,3 @@ def test():
 
     print("\nTest passed!")
 
-
-if __name__ == '__main__':
-    test()

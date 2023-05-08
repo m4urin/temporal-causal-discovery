@@ -19,8 +19,8 @@ class TestDepthwiseSeparableTCN(unittest.TestCase):
                                          out_channels=self.out_channels,
                                          kernel_size=self.kernel_size,
                                          groups=self.groups,
-                                         n_layers=self.n_layers,
-                                         block_layers=self.block_layers,
+                                         n_blocks=self.n_layers,
+                                         n_layers_per_block=self.block_layers,
                                          dropout=self.dropout)
 
     def test_output_shape(self):

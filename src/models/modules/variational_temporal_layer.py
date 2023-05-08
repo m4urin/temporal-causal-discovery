@@ -65,39 +65,3 @@ class VariationalTemporalLayer(nn.Module):
 
     def __repr__(self):
         return str(self)
-
-
-def test():
-    """
-    Function to test the VariationalTemporalLayer module.
-
-    This function creates an instance of the VariationalTemporalLayer module and performs a forward pass
-    with random input. It then checks that the output tensor has the correct shape, and that the means and
-    standard deviations have been returned correctly.
-    """
-    # Set up the input tensor
-    batch_size = 8
-    channels = 32
-    groups = 2
-    sequence_length = 100
-    input_tensor = torch.randn(batch_size, 2 * channels, sequence_length)
-
-    # Create an instance of the VariationalTemporalLayer module
-    vtl = VariationalTemporalLayer(out_channels=channels, groups=groups)
-    print(vtl)
-
-    # Perform a forward pass with the input tensor
-    output_tensor, mu, std = vtl(input_tensor, sample=True)
-
-    # Check that the output tensor has the correct shape
-    assert output_tensor.shape == (batch_size, channels, sequence_length)
-
-    # Check that the means and standard deviations have been returned correctly
-    assert mu.shape == (batch_size, channels, sequence_length)
-    assert std.shape == (batch_size, channels, sequence_length)
-
-    print("Test passed!")
-
-
-if __name__ == '__main__':
-    test()

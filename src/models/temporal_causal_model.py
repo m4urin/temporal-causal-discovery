@@ -1,105 +1,39 @@
 import torch.nn as nn
 import torch
-from src.utils.pytorch import count_parameters
+
+from src.utils.model_outputs import ModelOutput, ModelResult
 
 
 class TemporalCausalModel(nn.Module):
     """
-    A temporal causal model used as a superclass to perform causal prediction in time series data.
+    A superclass for performing causal prediction in time series data.
 
-    Attributes:
-    -----------
-    None
-
-    Methods:
-    --------
-    get_receptive_field(self) -> int:
-        Returns the receptive field of the model.
-
-    get_n_parameters(self, trainable_only: bool = False) -> int:
-        Returns the number of parameters in the model.
-
-        Parameters:
-        -----------
-        trainable_only : bool, optional
-            If True, returns only the number of trainable parameters.
-
-        Returns:
-        --------
-        int
-            The number of parameters in the model.
-
-    evaluate(self, x: torch.Tensor) -> dict:
-        Evaluates the model on the input tensor x and returns a dictionary with evaluation data.
-
-        Parameters:
-        -----------
-        x : torch.Tensor
-            Input tensor.
-
-        Returns:
-        --------
-        dict
-            A dictionary with evaluation data: {'train_loss': float, 'test_loss': float, 'causal_matrix': {'variational_inference': float, 'monte_carlo': float}}
+    This model defines methods for getting the receptive field of the model, getting the number of parameters
+    in the model, and evaluating the model on input data. To use this model, you need to implement the forward method.
     """
-    def __init__(self):
+    def __init__(self, num_variables: int, receptive_field: int):
         super().__init__()
+        self.num_variables = num_variables
+        self.receptive_field = receptive_field
 
-    def get_receptive_field(self) -> int:
+    @classmethod
+    def get_hp_space(cls):
+        raise NotImplementedError('Not implemented yet')
+
+    def forward(self, x: torch.Tensor, max_batch_size: int = None) -> ModelOutput:
         """
-        Returns the receptive field of the model.
-
-        The receptive field is defined as the number of input time steps that influence a single output time step.
-
-        Parameters:
-        -----------
-        None
-
-        Returns:
-        --------
-        int
-            The receptive field of the model.
+        Computes the forward pass of the model.
+        To use this model, you need to implement this method.
         """
         raise NotImplementedError('Not implemented yet')
 
-    def get_n_parameters(self, trainable_only: bool = False) -> int:
-        """
-        Returns the number of parameters in the model.
-
-        Parameters:
-        -----------
-        trainable_only : bool, optional
-            If True, returns only the number of trainable parameters.
-
-        Returns:
-        --------
-        int
-            The number of parameters in the model.
-        """
-        return count_parameters(self, trainable_only)
-
-    def evaluate(self, x: torch.Tensor) -> dict:
-        """
-        Evaluates the model on the input tensor x and returns a dictionary with evaluation data.
-
-        The evaluation data includes the train and test losses, as well as the causal matrix computed using variational inference
-        and Monte Carlo methods.
-
-        Parameters:
-        -----------
-        x : torch.Tensor
-            Input tensor.
-
-        Returns:
-        --------
-        dict
-            A dictionary with evaluation data: {
-               'train_loss': float,
-               'test_loss': float,
-               'causal_matrix': {
-                  'mu': list,
-                  'variational_inference': list,
-                  'monte_carlo': list}
-            }
-        """
+    def get_result(self, x: torch.Tensor) -> ModelResult:
         raise NotImplementedError('Not implemented yet')
+
+    def evaluate(self, x: torch.Tensor, max_batch_size: int = None) -> ModelOutput:
+        with torch.no_grad():
+            mode = self.training
+            self.eval()
+            model_output = self.forward(x, max_batch_size)
+            self.train(mode)
+            return model_output

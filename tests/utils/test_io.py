@@ -14,8 +14,8 @@ class TestFunctions(unittest.TestCase):
         shutil.rmtree('test')
 
     def test_join_path(self):
-        self.assertEqual(join_path("test", "folder", "file.txt"), os.path.abspath("test/folder/file.txt"))
-        self.assertEqual(join_path("test", "new_folder"), os.path.abspath("test/new_folder"))
+        self.assertEqual(join_paths("test", "folder", "file.txt"), os.path.abspath("test/folder/file.txt"))
+        self.assertEqual(join_paths("test", "new_folder"), os.path.abspath("test/new_folder"))
 
     def test_load_json_file_save_json_file(self):
         data = {"key": "value", "number": 42}

@@ -1,18 +1,18 @@
 import torch
 import torch.nn as nn
 
-from src.models.old.navar import NAVAR, test_model
+from src.models.implementations.navar import NAVAR, test_model
 
 
 class NAVAR_Variational(NAVAR):
-    def __init__(self, num_nodes: int, kernel_size: int, n_layers: int,
+    def __init__(self, num_variables: int, kernel_size: int, n_layers: int,
                  hidden_dim: int, lambda1: float, dropout: float = 0.0):
         """
         Neural Additive Vector AutoRegression (NAVAR) model using a
         Variational output layer for Aleatoric uncertainty
 
         Args:
-            num_nodes:
+            num_variables:
                 The number of variables / time series (N)
             kernel_size:
                 Kernel_size used by the TCN
@@ -24,14 +24,14 @@ class NAVAR_Variational(NAVAR):
             dropout: float
                 Dropout probability of units in hidden layers
         """
-        super().__init__(num_nodes, kernel_size, n_layers, hidden_dim, lambda1, dropout)
-        conv = nn.utils.weight_norm(nn.Conv1d(in_channels=num_nodes * 1,
-                                              out_channels=num_nodes * hidden_dim,
-                                              kernel_size=kernel_size, groups=num_nodes))
-        linear = nn.Conv1d(in_channels=num_nodes * hidden_dim,
-                           out_channels=num_nodes * num_nodes * 2,
-                           kernel_size=1, groups=num_nodes)
-        self.biases = nn.Parameter(torch.empty(num_nodes, 1))
+        super().__init__(num_variables, kernel_size, n_layers, hidden_dim, lambda1, dropout)
+        conv = nn.utils.weight_norm(nn.Conv1d(in_channels=num_variables * 1,
+                                              out_channels=num_variables * hidden_dim,
+                                              kernel_size=kernel_size, groups=num_variables))
+        linear = nn.Conv1d(in_channels=num_variables * hidden_dim,
+                           out_channels=num_variables * num_variables * 2,
+                           kernel_size=1, groups=num_variables)
+        self.biases = nn.Parameter(torch.empty(num_variables, 1))
         self.network = nn.Sequential(conv, nn.ReLU(), nn.Dropout(p=dropout), linear)
 
         conv.weight.data.normal_(0, 0.01)
@@ -44,9 +44,9 @@ class NAVAR_Variational(NAVAR):
     def get_loss(self, x: torch.Tensor, y: torch.Tensor, sample=True, **kwargs):
         # predictions: (bs, num_nodes, t), mu/std/var: (bs, num_nodes, num_nodes, t)
         predictions, mu, std, log_var = self.forward(x, sample)
-        regression_loss = ((predictions - y[..., self.kernel_size - 1:]) ** 2).mean()
+        regression_loss = ((predictions - y[..., self.kernel_size - 1:]) ** 2).matrix()
         kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=(1, 2)))
-        return regression_loss + (self.lambda1 / self.num_nodes) * kld_loss
+        return regression_loss + (self.lambda1 / self.num_variables) * kld_loss
 
     def evaluate(self, x: torch.Tensor, monte_carlo_dropout: int = None, **kwargs):
         if monte_carlo_dropout is None:
@@ -78,7 +78,7 @@ class NAVAR_Variational(NAVAR):
         bs = x.shape[0]
 
         # x: (bs, num_nodes, time_steps) -> (bs, num_nodes, 2, num_nodes, time_steps)
-        x = self.network(x).view(bs, self.num_nodes, 2, self.num_nodes, -1)
+        x = self.network(x).view(bs, self.num_variables, 2, self.num_variables, -1)
 
         mu, log_var = x[:, :, 0], x[:, :, 1]
 

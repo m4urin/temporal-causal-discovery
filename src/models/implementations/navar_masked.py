@@ -1,34 +1,34 @@
 import torch
 import torch.nn as nn
 
-from src.models.old.navar import NAVAR
+from src.models.implementations.navar import NAVAR
 
 
 class NAVAR_MASKED(NAVAR):
-    def __init__(self, num_nodes: int, kernel_size: int, n_layers: int,
+    def __init__(self, num_variables: int, kernel_size: int, n_layers: int,
                  hidden_dim: int, lambda1: float, dropout: float = 0.0):
-        super(NAVAR_MASKED, self).__init__(num_nodes, kernel_size, n_layers, hidden_dim, lambda1, dropout)
-        self.num_nodes = num_nodes
-        self.conv1 = nn.utils.weight_norm(nn.Conv1d(in_channels=num_nodes * num_nodes,
-                                                    out_channels=num_nodes * hidden_dim,
-                                                    kernel_size=kernel_size, groups=num_nodes))
-        self.conv2 = nn.utils.weight_norm(nn.Conv1d(in_channels=num_nodes * hidden_dim,
-                                                    out_channels=num_nodes * num_nodes,
-                                                    kernel_size=kernel_size, groups=num_nodes, bias=False))
+        super(NAVAR_MASKED, self).__init__(num_variables, kernel_size, n_layers, hidden_dim, lambda1, dropout)
+        self.num_nodes = num_variables
+        self.conv1 = nn.utils.weight_norm(nn.Conv1d(in_channels=num_variables * num_variables,
+                                                    out_channels=num_variables * hidden_dim,
+                                                    kernel_size=kernel_size, groups=num_variables))
+        self.conv2 = nn.utils.weight_norm(nn.Conv1d(in_channels=num_variables * hidden_dim,
+                                                    out_channels=num_variables * num_variables,
+                                                    kernel_size=kernel_size, groups=num_variables, bias=False))
         self.receptive_field = 2 * kernel_size - 1
         pad = nn.ZeroPad2d(((kernel_size - 1), 0, 0, 0))
         self.convolutions = nn.Sequential(pad, self.conv1, nn.ReLU(), nn.Dropout(dropout), pad, self.conv2)
 
-        self.biases = nn.Parameter(torch.empty(num_nodes, 1))
-        self.attention = nn.Parameter(torch.empty(num_nodes * num_nodes, 1))
+        self.biases = nn.Parameter(torch.empty(num_variables, 1))
+        self.attention = nn.Parameter(torch.empty(num_variables * num_variables, 1))
 
-        attention_mask = torch.zeros(num_nodes, num_nodes, dtype=torch.bool).fill_diagonal_(True)
-        data_mask = torch.ones(num_nodes, num_nodes, dtype=torch.bool)
-        for i in range(num_nodes):
+        attention_mask = torch.zeros(num_variables, num_variables, dtype=torch.bool).fill_diagonal_(True)
+        data_mask = torch.ones(num_variables, num_variables, dtype=torch.bool)
+        for i in range(num_variables):
             data_mask[i, :i + 1] = False
 
-        self.attention_mask = attention_mask.reshape(num_nodes * num_nodes, 1)
-        self.data_mask = data_mask.reshape(num_nodes * num_nodes, 1)
+        self.attention_mask = attention_mask.reshape(num_variables * num_variables, 1)
+        self.data_mask = data_mask.reshape(num_variables * num_variables, 1)
 
         self.conv1.weight.data.normal_(0, 0.01)
         self.conv2.weight.data.normal_(0, 0.01)
@@ -68,5 +68,5 @@ class NAVAR_MASKED(NAVAR):
 
 
 if __name__ == '__main__':
-    from src.models.old.navar import test_model
+    from src.models.implementations.navar import test_model
     test_model(NAVAR_MASKED)

@@ -1,12 +1,13 @@
 import math
 import os
+from typing import List
 
 import networkx as nx
 import numpy as np
 from matplotlib import pyplot as plt
 
 from definitions import RESULTS_DIR
-from src.utils2 import join_path
+from src.utils.io import join_paths
 
 
 def draw_causal_matrix(causal_matrix, threshold=0.02, draw_weights=True, save_fig=None, pos=None, title=None):
@@ -61,7 +62,7 @@ def draw_causal_matrix(causal_matrix, threshold=0.02, draw_weights=True, save_fi
         plt.title(title)
 
     if save_fig is not None:
-        plt.savefig(join_path(RESULTS_DIR, save_fig))
+        plt.savefig(join_paths(RESULTS_DIR, save_fig))
     else:
         plt.show()
     plt.clf()
@@ -88,6 +89,29 @@ def plot_multiple_timeseries(data, title=None, names=None, x_label=None):
     fig.subplots_adjust(hspace=0.2)
     # Show the plot
     plt.show()
+
+
+def plot_train_val_loss(train_losses: List[float], val_losses: List[float] = None,
+                        test_every: int = 1, path=None, show_plot=False):
+    fig, ax = plt.subplots()
+    ax.plot(train_losses, label='train loss')
+    if len(val_losses) > 0:
+        ax.plot(np.arange(0, len(val_losses)) * test_every, val_losses, label='eval loss')
+        ax.set_title('Train and Validation Loss')
+    else:
+        ax.set_title('Train Loss')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    ax.set_title('Train and Validation Loss')
+    ax.legend()
+
+    if path is not None:
+        plt.savefig(path)
+
+    if show_plot:
+        plt.show()
+
+    plt.clf()
 
 
 if __name__ == '__main__':

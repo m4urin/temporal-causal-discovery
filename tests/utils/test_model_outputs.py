@@ -11,13 +11,13 @@ class TestModelOutputs(unittest.TestCase):
         loss = torch.nn.functional.mse_loss(self.predictions, torch.zeros_like(self.predictions))
         model_output = ModelOutput(self.predictions, loss)
         self.assertIs(model_output.predictions, self.predictions)
-        self.assertIs(model_output.loss, loss)
+        self.assertIs(model_output.losses, loss)
 
     def test_causal_matrix(self):
         mu = torch.randn(3, 3)
         std = torch.randn_like(mu)
         causal_matrix = CausalMatrix(mu, std)
-        self.assertIsNotNone(causal_matrix.mu)
+        self.assertIsNotNone(causal_matrix.matrix)
         self.assertIsNotNone(causal_matrix.std)
         self.assertFalse(causal_matrix.is_history_dependent)
         self.assertTrue(causal_matrix.has_std)
@@ -25,7 +25,7 @@ class TestModelOutputs(unittest.TestCase):
     def test_causal_matrix_no_std(self):
         mu = torch.randn(3, 3)
         causal_matrix = CausalMatrix(mu)
-        self.assertIsNotNone(causal_matrix.mu)
+        self.assertIsNotNone(causal_matrix.matrix)
         self.assertIsNone(causal_matrix.std)
         self.assertFalse(causal_matrix.is_history_dependent)
         self.assertFalse(causal_matrix.has_std)
@@ -42,8 +42,8 @@ class TestModelOutputs(unittest.TestCase):
         causal_matrices = {'causal_matrix_1': CausalMatrix(torch.randn(3, 3))}
         eval_output = EvalOutput(self.predictions, train_loss, test_loss, causal_matrices)
         self.assertIs(eval_output.predictions, self.predictions)
-        self.assertAlmostEqual(eval_output.train_loss, train_loss, places=7)
-        self.assertAlmostEqual(eval_output.test_loss, test_loss, places=7)
+        self.assertAlmostEqual(eval_output.train_losses, train_loss, places=7)
+        self.assertAlmostEqual(eval_output.test_losses, test_loss, places=7)
         self.assertDictEqual(eval_output.causal_matrices, causal_matrices)
 
 

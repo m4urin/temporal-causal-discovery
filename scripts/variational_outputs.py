@@ -1,9 +1,9 @@
 from matplotlib import pyplot as plt
 
 from definitions import DEVICE
-from src.data import toy_data_5_nodes_variational
-from src.models.old.navar_variational import NAVAR_Variational
-from src.train_model import train_model
+from src.data.dataset import toy_data_5_nodes_variational
+from src.models.implementations.navar_variational import NAVAR_Variational
+from src.training.train_model import train_model
 
 print(DEVICE)
 #DEVICE = 'cpu'
@@ -18,7 +18,7 @@ _, min_loss, best_epochs, result = train_model(NAVAR_Variational, data, epochs=2
 predictions, mu, std = result
 predictions = predictions[..., :-1, 0].cpu()
 
-epistemic_mean = predictions.mean(dim=0).flatten()
+epistemic_mean = predictions.matrix(dim=0).flatten()
 epistemic_std = predictions.std(dim=0).flatten()
 data = data[:, 0, 4:].flatten().cpu() / 4
 
