@@ -1,7 +1,7 @@
 # project files
 .idea/
 #results/
-tests/*.png
+tests/
 *_ignore.*
 *Digraph.gv.svg
 
