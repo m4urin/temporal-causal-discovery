@@ -17,7 +17,7 @@ class TestModelOutputs(unittest.TestCase):
         std = torch.randn_like(mu)
         causal_matrix = CausalMatrix(mu, std)
         self.assertIsNotNone(causal_matrix.matrix)
-        self.assertIsNotNone(causal_matrix.std)
+        self.assertIsNotNone(causal_matrix.std_pred)
         self.assertFalse(causal_matrix.is_history_dependent)
         self.assertTrue(causal_matrix.has_std)
 
@@ -25,7 +25,7 @@ class TestModelOutputs(unittest.TestCase):
         mu = torch.randn(3, 3)
         causal_matrix = CausalMatrix(mu)
         self.assertIsNotNone(causal_matrix.matrix)
-        self.assertIsNone(causal_matrix.std)
+        self.assertIsNone(causal_matrix.std_pred)
         self.assertFalse(causal_matrix.is_history_dependent)
         self.assertFalse(causal_matrix.has_std)
 

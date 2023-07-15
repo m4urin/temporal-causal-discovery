@@ -1,27 +1,45 @@
 import torch
 
-from src.models.temporal_causal_model import TemporalCausalModel
+from src.models.model_outputs import ModelOutput
 
 
-def monte_carlo_dropout(model: TemporalCausalModel, x: torch.Tensor, samples: int = 300, max_batch_size: int = 128):
+def monte_carlo_dropout(model: torch.nn.Module, x: torch.Tensor,
+                        samples: int = 300, max_batch_size: int = 128) -> ModelOutput:
     """
-    x is of size (batch_size, num_variables, sequence_length)
+    Monte Carlo dropout estimation for a TemporalCausalModel.
 
-    It performs Monte Carlo dropout to estimate the uncertainty of the model's predictions by sampling the output of the model with dropout enabled. The function takes in a PyTorch tensor x and an integer samples, which represents the number of Monte Carlo samples to take. It then temporarily enables dropout by setting self.experiments = True, samples the output of the model with dropout enabled samples times, computes the mean and standard deviation of the model's output for each tensor attribute using PyTorch's mean and std functions, and returns two instances of ModelOutput containing the mean and standard deviation of the model's output.
-    The mean_data and std_data dictionaries are created by copying the attributes of the first element of the model_outputs list, which is a ModelOutput object, using the __dict__() method. These dictionaries are then modified by replacing the tensor attributes with their mean and standard deviation, respectively.
-    After the computation is finished, the self.experiments mode is restored to its original value by setting it to mode.
+    Args:
+        model (torch.nn.Module): The temporal causal model to use.
+        x (torch.Tensor): The input tensor, of size (batch_size, num_variables, sequence_length).
+        samples (int): The number of samples to take.
+        max_batch_size (int): The maximum batch size to use for each forward pass.
+
+    Returns:
+        A dictionary of output tensors from the model, with keys corresponding to the names of each output.
     """
-    assert samples > 0, 'at least one sample to compute'
-    assert max_batch_size > 0, "TODO"
+    # Ensure the number of samples is valid
+    assert samples > 0, 'Must have at least one sample to compute'
+    # Ensure the batch size is valid
+    assert max_batch_size > 0, 'Max batch size must be positive'
+
+    # Save the current mode of the model, and switch to training mode
     mode = model.training
-    model.train()  # enable dropout
+    model.train()
 
+    # Unpack the input shape
     batch_size, num_variables, sequence_length = x.shape
 
+    # Expand the input tensor to take multiple samples
+    expanded_inputs = x.unsqueeze(0).expand(samples, -1, -1, -1).view(-1, num_variables, sequence_length)
+    # Run the forward pass on the expanded inputs
     with torch.no_grad():
-        # size (samples * batch_size, ...)
-        x = x.unsqueeze(0).expand(samples, -1, -1, -1).view(-1, num_variables, sequence_length)
-        model_output = model.forward(x, max_batch_size=max_batch_size)
-        for k, v in model_output.items():
-            setattr(model_output, k, v.view(samples, batch_size, *v.shape[1:]))
-        return model_output
+        model_output = model.forward(expanded_inputs, max_batch_size=max_batch_size)
+
+        # Reshape the model output tensors to separate samples and batch dimension
+        for key, value in model_output.items():
+            setattr(model_output, key, value.view(samples, batch_size, *value.shape[1:]))
+
+    # Restore the model to its original mode
+    model.train(mode=mode)
+
+    return model_output

@@ -1,6 +1,6 @@
 import torch
 
-from src.data.dataset import toy_data_coupled
+from src.data.timeseries_data import toy_data_coupled
 from src.models.implementations.navar import NAVAR_SMALL
 from src.experiments.train_model import train_model
 from src.utils.visualisations import draw_causal_matrix

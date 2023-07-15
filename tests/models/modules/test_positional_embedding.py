@@ -16,7 +16,7 @@ class TestPositionalEmbedding(unittest.TestCase):
     def test_forward(self):
         # Test the forward() method by passing a random tensor of the expected shape
         x = rand(self.batch_size, self.num_variables, self.embedding_dim)
-        output = self.pe.forward(x)
+        output = forward(x)
         expected_shape = (self.batch_size, self.num_variables * self.embedding_dim, self.seq_length)
         self.assertEqual(output.shape, expected_shape)
 

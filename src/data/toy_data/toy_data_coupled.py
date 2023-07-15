@@ -1,6 +1,6 @@
 import torch
 
-from src.data.dataset import normalize, Dataset
+from src.data.timeseries_data import normalize, TimeSeriesData
 
 
 def toy_data_coupled(batch_size: int = 1, time_steps: int = 500, warmup: int = 200):
@@ -17,4 +17,4 @@ def toy_data_coupled(batch_size: int = 1, time_steps: int = 500, warmup: int = 2
 
     data = data[..., warmup:]
     data = normalize(data, dim=-1)
-    return Dataset(data.to(dtype=torch.float32))
+    return TimeSeriesData(data.to(dtype=torch.float32))

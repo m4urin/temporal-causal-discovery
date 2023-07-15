@@ -3,29 +3,36 @@ import torch
 from torch import nn
 
 from src.models.model_outputs import ModelOutput
+from src.models.modules.functional import sparsemax, entropy
 from src.models.modules.interpret.interpret_module import InterpretModule
 from src.models.modules.temporal.temporal_variational_layer import TemporalVariationalLayer
 
 
-def scaled_dot_product(q, k, v, mask=None):
+def scaled_dot_product(q, k, v, num_heads=1, mask=None):
     """
-    Applies scaled dot product attention mechanism.
+    Applies multi-head scaled dot product attention mechanism.
 
     Args:
         q (torch.Tensor): Query tensor of shape (..., sequence_length, embed_dim).
         k (torch.Tensor): Key tensor of shape (..., sequence_length, embed_dim).
         v (torch.Tensor): Value tensor of shape (..., sequence_length, embed_dim).
+        num_heads (int): Number of attention heads.
         mask (torch.Tensor, optional): Mask tensor of shape (..., sequence_length, sequence_length)
             indicating which positions should be masked. Default is None.
 
     Returns:
-        attention (torch.Tensor): Attention tensor of shape (..., sequence_length, sequence_length).
+        attention (torch.Tensor): Attention tensor of shape (..., sequence_length, sequence_length, num_heads).
         values (torch.Tensor): Output tensor of shape (..., sequence_length, embed_dim).
     """
-    d_k = q.size()[-1]
+    d_k = q.size()[-1] // num_heads
+
+    # Split q, k, v into multiple heads
+    q = q.view(*q.size()[:-1], num_heads, d_k)
+    k = k.view(*k.size()[:-1], num_heads, d_k)
+    v = v.view(*v.size()[:-1], num_heads, d_k)
 
     # Compute attention logits
-    attn_logits = torch.matmul(q, k.transpose(-2, -1))
+    attn_logits = torch.matmul(q.permute(0, 1, 3, 2, 4), k.permute(0, 1, 3, 4, 2))
     attn_logits = attn_logits / math.sqrt(d_k)
 
     # Apply mask if provided
@@ -36,13 +43,17 @@ def scaled_dot_product(q, k, v, mask=None):
     attention = torch.softmax(attn_logits, dim=-1)
 
     # Compute output values
-    values = torch.matmul(attention, v)
+    values = torch.matmul(attention, v.permute(0, 1, 3, 2, 4)).permute(0, 1, 3, 2, 4)
+
+    values = values.reshape(*values.size()[:3], -1)
+    attention = attention.permute(0, 1, 3, 4, 2)
 
     return attention, values
 
 
 class AttentionDefault(InterpretModule):
-    def __init__(self, in_channels: int, groups: int, num_external_variables: int, use_variational_layer: bool):
+    def __init__(self, in_channels: int, groups: int, num_external_variables: int,
+                 use_variational_layer: bool, num_heads: int):
         """
         Initializes the AttentionInstant layer.
 
@@ -59,21 +70,24 @@ class AttentionDefault(InterpretModule):
             use_variational_layer,
             use_instantaneous_predictions=False
         )
+        self.num_heads = num_heads
+
         self.q_proj = nn.Linear(self.dim, self.dim)
         self.kv_proj = nn.Linear(self.dim, 2 * self.dim)
         self.o_proj = nn.Linear(self.dim, self.dim)
 
         if use_variational_layer:
             self.predict = nn.Sequential(
-                nn.ReLU(),
+                nn.Sigmoid(),
                 TemporalVariationalLayer(self.n * self.dim, self.n, groups=self.n)
             )
         else:
             self.predict = nn.Sequential(
-                nn.ReLU(),
+                nn.Sigmoid(),
                 nn.Conv1d(self.n * self.dim, self.n, kernel_size=1, groups=self.n)
             )
 
+        self.norm = nn.LayerNorm(self.dim)
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -111,23 +125,28 @@ class AttentionDefault(InterpretModule):
         x = x.transpose(-2, -1).reshape(batch_size, seq_len, self.groups, self.dim)
 
         # embeddings at timestep t without external variables
-        q = self.q_proj(x[:, :, :self.n])  # (batch_size, seq_len, n, dim)
-
         k, v = self.kv_proj(x).chunk(2, dim=-1)  # (batch_size, seq_len, groups, dim)
+        x = x[:, :, :self.n]   # (batch_size, seq_len, n, dim)
+        q = self.q_proj(x)  # (batch_size, seq_len, n, dim)
 
         # attn: (batch_size, seq_len, n, groups)
-        # x: (batch_size, seq_len, n, dim)
-        attn, x = scaled_dot_product(q, k, v)
+        # context: (batch_size, seq_len, n, dim)
+        attn, context = scaled_dot_product(q, k, v, num_heads=self.num_heads)
+        assert False, (attn.shape, context.shape, self.num_heads)
 
         # Apply output projection
-        x = self.o_proj(x)  # (batch_size, seq_len, n, dim)
+        x = x + self.o_proj(context)  # (batch_size, seq_len, n, dim)
+        x = self.norm(x)
 
         # Reshape attention tensor
-        attn = attn.permute(0, 3, 2, 1)  # (batch_size, groups, n, seq_len)
-
-        result = {'attn': attn[:, :self.n]}
+        attn = attn.permute(0, 2, 3, 1)  # (batch_size, n, groups, seq_len)
+        result = {
+            'attn': attn[:, :, :self.n],
+            'attn_loss': attn[:, :, self.n:self.groups].mean(),  # 0.1 * entropy(attn.mean(dim=-1), dim=-1).sum(dim=-1),
+            'causal_matrix': attn.mean(dim=-1).detach()
+        }
         if self.e > 0:
-            result['attn_external_variables'] = attn[:, self.n:]
+            result['attn_external_variables'] = attn[:, :, self.n:]
 
         x = x.reshape(batch_size, seq_len, -1).transpose(-1, -2)  # (batch_size, n * dim, seq_len)
 
@@ -141,7 +160,8 @@ class AttentionDefault(InterpretModule):
 
 
 class AttentionInstant(InterpretModule):
-    def __init__(self, in_channels: int, groups: int, num_external_variables: int, use_variational_layer: bool):
+    def __init__(self, in_channels: int, groups: int, num_external_variables: int,
+                 use_variational_layer: bool, num_heads: int):
         """
         Initializes the AttentionInstant layer.
 
@@ -158,6 +178,8 @@ class AttentionInstant(InterpretModule):
             use_variational_layer,
             use_instantaneous_predictions=True
         )
+        self.num_heads = num_heads
+
         self.register_buffer('mask', self._create_mask())
 
         self.pad = nn.ConstantPad1d((0, 1), 0)
@@ -168,15 +190,16 @@ class AttentionInstant(InterpretModule):
 
         if use_variational_layer:
             self.predict = nn.Sequential(
-                nn.ReLU(),
+                nn.Sigmoid(),
                 TemporalVariationalLayer(self.n * self.dim, self.n, groups=self.n)
             )
         else:
             self.predict = nn.Sequential(
-                nn.ReLU(),
+                nn.Sigmoid(),
                 nn.Conv1d(self.n * self.dim, self.n, kernel_size=1, groups=self.n)
             )
 
+        self.norm = nn.LayerNorm(self.dim)
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -199,7 +222,7 @@ class AttentionInstant(InterpretModule):
         """
         mask = torch.ones(self.n, self.groups + self.n, dtype=torch.int)
         mask[:, self.groups:] = 1 - torch.eye(self.n)
-        mask = mask[None, None, ...]  # (1, 1, n, 2*n+e)
+        mask = mask.reshape(1, 1, 1, self.n, -1)  # (1, 1, n, 2*n+e)
         return mask
 
     def forward(self, x) -> ModelOutput:
@@ -229,31 +252,41 @@ class AttentionInstant(InterpretModule):
         # (batch_size, seq_len+1, groups, dim)
         x = x.transpose(-2, -1).reshape(batch_size, seq_len + 1, self.groups, self.dim)
 
-        # embeddings at timestep t without external variables
-        q = self.q_proj(x[:, :-1, :self.n])  # (batch_size, seq_len, n, dim)
-
         # embeddings at timestep t including external variables and
         # embeddings at timestep t+1 without external embeddings
         kv = torch.cat((x[:, :-1], x[:, 1:, :self.n]), dim=2)  # (batch_size, seq_len, n+e+n, dim)
-
         k, v = self.kv_proj(kv).chunk(2, dim=-1)  # (batch_size, seq_len, n+e+n, dim)
 
+        x = x[:, :-1, :self.n]  # (batch_size, seq_len, n, dim)
+
+        # embeddings at timestep t without external variables
+        q = self.q_proj(x)  # (batch_size, seq_len, n, dim)
+
         # attn: (batch_size, seq_len, n, n+e+n)
-        # values: (batch_size, seq_len, n, dim)
-        attn, x = scaled_dot_product(q, k, v, mask=self.mask)
+        # context: (batch_size, seq_len, n, dim)
+        attn, context = scaled_dot_product(q, k, v, mask=self.mask, num_heads=self.num_heads)
 
         # Apply output projection
-        x = self.o_proj(x)  # (batch_size, seq_len, n, dim)
+        x = x + self.o_proj(context)  # (batch_size, seq_len, n, dim)
+        x = self.norm(x)
 
         # Reshape attention tensor
-        attn = attn.permute(0, 3, 2, 1)  # (batch_size, n+e+n, n, seq_len)
+        attn = attn.permute(0, 2, 3, 1)  # (batch_size, n, n+e+n, seq_len)
+
+        causal_matrix = attn.mean(dim=-1).detach()
+        causal_matrix[:, :, :self.n] += causal_matrix[:, :, self.groups:]
+        causal_matrix = causal_matrix[:, :, :self.groups]
 
         result = {
-            'attn': attn[:, :self.n],
-            'attn_instantaneous': attn[:, self.groups:]
+            'attn': attn[:, :, :self.n],
+            'attn_instantaneous': attn[:, :, self.groups:],
+            'attn_loss': attn[:, :, self.n:self.groups].mean(),  # 0.1 * entropy(attn.mean(dim=-1), dim=-1).sum(dim=-1),
+            'causal_matrix': causal_matrix
         }
         if self.e > 0:
-            result['attn_external_variables'] = attn[:, self.n:self.groups]
+            result['attn_external_variables'] = attn[:, :, self.n:self.groups]
+            #attn_reg = result['attn'].abs().mean(dim=(1, 2, 3))
+            #attn_instant_reg = result['attn_instantaneous'].abs().mean(dim=(1, 2, 3))
 
         x = x.reshape(batch_size, seq_len, -1).transpose(-1, -2)  # (batch_size, n * dim, seq_len)
 

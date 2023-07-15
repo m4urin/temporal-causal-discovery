@@ -1,6 +1,6 @@
 import torch
 
-from src.data.dataset import Dataset
+from src.data.timeseries_data import TimeSeriesData
 
 
 def toy_data_chain_noise(noise: float, batch_size: int = 1, time_steps: int = 500, warmup: int = 200):
@@ -26,7 +26,7 @@ def toy_data_chain_noise(noise: float, batch_size: int = 1, time_steps: int = 50
     data /= var
     contributions -= mu.unsqueeze(dim=1)
     contributions /= var.unsqueeze(dim=1)
-    contributions = contributions.abs().std(dim=-1)
+    contributions = contributions.abs().std_pred(dim=-1)
 
     data = data[..., warmup:]
-    return Dataset(data.to(dtype=torch.float32), contributions.to(dtype=torch.float32))
+    return TimeSeriesData(name="", train_data=data)

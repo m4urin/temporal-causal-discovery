@@ -3,6 +3,8 @@ import json
 import os
 import pickle
 
+import torch
+
 
 def join_paths(*sub_paths, make_dirs: bool = True) -> str:
     """
@@ -117,3 +119,30 @@ def save_object_pickled(filepath: str, data):
     """
     with open(filepath, "wb") as pickle_file:
         pickle.dump(data, pickle_file)
+
+
+def save_module_to_file(module, filepath):
+    """
+    Save a PyTorch nn.Module to a file.
+
+    Arguments:
+    module -- The nn.Module object to be saved.
+    filepath -- The path of the file to save the module to.
+    """
+    torch.save(module.state_dict(), filepath)
+
+
+def load_module_from_file(module_class, filepath):
+    """
+    Load a PyTorch nn.Module from a file.
+
+    Arguments:
+    module_class -- The class of the nn.Module to be loaded.
+    filepath -- The path of the file to load the module from.
+
+    Returns:
+    module -- The loaded nn.Module object.
+    """
+    module = module_class()
+    module.load_state_dict(torch.load(filepath))
+    return module

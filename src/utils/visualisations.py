@@ -1,96 +1,10 @@
-import math
-from typing import List
-
-import networkx as nx
 import numpy as np
 from matplotlib import pyplot as plt
-
-from definitions import RESULTS_DIR
-from src.utils.io import join_paths
-
-
-def draw_causal_matrix(causal_matrix, threshold=0.02, draw_weights=True, save_fig=None, pos=None, title=None):
-    # to np array
-    causal_matrix = np.array(causal_matrix, dtype=np.float32)
-    # check data
-    if causal_matrix.ndim == 1:
-        num_nodes = int(math.sqrt(len(causal_matrix)))
-        causal_matrix = causal_matrix.reshape(num_nodes, num_nodes)
-    assert causal_matrix.ndim == 2 and causal_matrix.shape[0] == causal_matrix.shape[1], \
-        "Requires a square causal matrix"
-
-    # scale to 1.0
-    max_val = causal_matrix.max()
-    if max_val > 0:
-        causal_matrix /= causal_matrix.max()
-    # apply threshold
-    causal_matrix = np.where(causal_matrix >= threshold, causal_matrix, 0.0)
-
-    # create multi graph
-    G = nx.MultiDiGraph()
-
-    # add nodes
-    G.add_nodes_from(list(range(len(causal_matrix))))
-
-    # add edges
-    edges = []
-    for i in range(len(causal_matrix)):
-        for j in range(len(causal_matrix)):
-            if causal_matrix[i, j] > 0.01:
-                edges.append((i, j, causal_matrix[i, j]))
-    G.add_weighted_edges_from(edges)
-
-    # set position
-    if pos is None:
-        pos = nx.spring_layout(G, seed=0, iterations=50, k=3 / math.sqrt(len(causal_matrix)))
-
-    # draw nodes
-    nx.draw_networkx_nodes(G, pos, node_size=350)
-    nx.draw_networkx_labels(G, pos, font_color='white', font_size=14)
-
-    # draw parallel edges
-    for edge in G.edges(data='weight'):
-        nx.draw_networkx_edges(G, pos, edgelist=[edge], width=edge[2]*2.5, connectionstyle='arc3, rad = 0.08', arrowsize=12)
-
-    # draw weights
-    if draw_weights:
-        nx.draw_networkx_edge_labels(G, pos, edge_labels={(u, v): str(round(w, 2)) for u, v, w in edges if u != v},
-                                     font_size=8)
-
-    if title is not None:
-        plt.title(title)
-
-    if save_fig is not None:
-        plt.savefig(join_paths(RESULTS_DIR, save_fig))
-    else:
-        plt.show()
-    plt.clf()
-
-    return pos
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.ndimage import gaussian_filter1d
 
 
-def plot_multiple_timeseries(data, title=None, names=None, x_label=None):
-    plt.clf()
-    k = len(data)
-    fig, axs = plt.subplots(k, 1, figsize=(8, 6), sharex=True)
-    for i in range(k):
-        axs[i].plot(data[i])
-        if names is not None:
-            axs[i].set_ylabel(names[i])
-    # Set the x-axis label for the bottom subplot
-    axs[-1].set_xlabel("Time" if x_label is None else x_label)
-
-    # Add a title to the figure
-    if title is not None:
-        fig.suptitle(title)
-
-    # Adjust the spacing between subplots
-    fig.subplots_adjust(hspace=0.2)
-    # Show the plot
-    plt.show()
-
-
-def plot_train_val_loss(train_losses: List[float], val_losses: List[float] = None,
+def plot_train_val_loss(train_losses: list[float], val_losses: list[float] = None,
                         test_every: int = 1, path=None, show_plot=False):
     fig, ax = plt.subplots()
     ax.plot(train_losses, label='train loss')
@@ -109,15 +23,218 @@ def plot_train_val_loss(train_losses: List[float], val_losses: List[float] = Non
 
     if show_plot:
         plt.show()
+    plt.close()
 
-    plt.clf()
+
+def plot_multiple_timeseries(y, x=None, title=None, y_labels=None, labels=None, colors=None, x_label=None, path=None, limit=None, view=False):
+    """
+    Plot multiple time series on separate subplots.
+
+    Parameters:
+        y (ndarray): 3-dimensional array representing the time series data.
+                        The expected shape is (k, n, t), where k is the number of time series,
+                        n represents the number of time instances to plot,
+                        and t is the number of data points for each time series.
+        title (str, optional): Title of the plot. Defaults to None.
+        y_labels (list of str, optional): List of names for each time series (k in total). Defaults to None.
+        labels (list of str, optional): List of labels for each sequence (n in total). Defaults to None.
+        x_label (str, optional): Label for the x-axis. Defaults to None.
+        path (str, optional): File path to save the plot as an image. Defaults to None.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: If the input data has an invalid shape.
+
+    """
+    #plt.clf()
+    k, n, t = y.shape  # Get the dimensions of the input data
+
+    if x is None:
+        x = np.full((k, n, t), np.arange(0, t))
+
+    # Check if the shape of data is valid
+    if len(y.shape) != 3:
+        raise ValueError("Invalid shape of 'data'. Expected shape: (k, n, t)")
+
+    fig, axs = plt.subplots(k, 1, figsize=(8, 6), sharex=True)
+
+    if labels is None:
+        labels = [None] * n
+    if colors is None:
+        colors = [None] * n
+
+    if k < 2:
+        axs = [axs]
+
+    for i in range(k):
+        for j in range(n):
+            axs[i].plot(x[i, j, :], y[i, j, :], label=labels[j], linewidth=1.0, color=colors[j])
+
+        if y_labels is not None:
+            axs[i].set_ylabel(y_labels[i])  # Set the y-axis label for each subplot
+
+        if limit is not None:
+            axs[i].set_ylim(*limit)  # Set y-axis limits
+
+    axs[-1].set_xlabel("Timesteps" if x_label is None else x_label)  # Set the x-axis label
+
+    if title is not None:
+        fig.suptitle(title)  # Set the title of the plot
+
+    fig.subplots_adjust(hspace=0.2)  # Adjust the spacing between subplots
+
+    # Create a single legend for all plots
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right')
+
+    if path is not None:
+        plt.savefig(path)  # Save the plot as an image if the path is provided
+
+    if view:
+        plt.show()  # Display the plot
+    plt.close()
+
+
+def plot_gaussian_curves(mu_list, std_list):
+    #plt.clf()
+
+    x = np.linspace((mu_list - 3*std_list).min().item(), (mu_list + 3*std_list).max().item(), 1000)  # Range of x-axis values
+    mu_list = mu_list.tolist()
+    std_list = std_list.tolist()
+
+    colored = len(mu_list) - 1
+    for i, (mu, std) in enumerate(zip(mu_list, std_list)):
+        y = 1/(std * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x - mu) / std)**2)
+        plt.plot(x, y, label=f"mu={mu}, std={std}", color='red' if i == colored else 'black')
+
+    plt.xlabel('X-axis')
+    plt.ylabel('Probability Density')
+    plt.title('Gaussian Curves')
+    plt.legend()
+    plt.show()
+    plt.close()
+
+
+def smooth_line(arr, sigma=4.0):
+    arr = np.array(arr)
+    smoothed_arr = np.copy(arr)
+    smoothed_arr = gaussian_filter1d(smoothed_arr, sigma)
+    return smoothed_arr
+
+
+def plot_heatmap(true_matrix, matrices, view=False, path=None, names=None):
+    #plt.clf()
+
+    fig, ax = plt.subplots(nrows=3, ncols=2, figsize=(5, 6))
+
+    if len(matrices) == 1:
+        ax = [ax]
+
+    if names is None:
+        names = [None] * len(matrices)
+
+    im = ax[0][0].imshow(true_matrix, cmap='Reds', interpolation=None, vmin=0.0, vmax=0.5)
+    ax[0][0].set_title("True")
+
+    divider = make_axes_locatable(ax[0][0])
+    cax = divider.append_axes('right', size='5%', pad=0.05)
+
+    fig.colorbar(im, cax=cax, orientation='vertical')
+
+    ax[0][1].axis('off')
+
+    ax[0][0].set_yticks(list(range(true_matrix.shape[0])))
+    ax[0][0].set_xticks(list(range(true_matrix.shape[1])))
+    ax[0][0].set_ylabel("Incoming")
+
+    for i, array in enumerate(matrices):
+        j1, j2 = 1 + (i // 2), i % 2
+        _ax = ax[j1, j2]
+        im = _ax.imshow(array, cmap='Reds', interpolation=None, vmin=0.0, vmax=0.5)
+        _ax.set_title(names[i])
+
+        divider = make_axes_locatable(_ax)
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+
+        fig.colorbar(im, cax=cax, orientation='vertical')
+
+        if j1 == 2:
+            _ax.set_xlabel("Outgoing")
+        if j2 == 0:
+            _ax.set_ylabel("Incoming")
+        _ax.set_yticks(list(range(array.shape[0])))
+        _ax.set_xticks(list(range(array.shape[1])))
+
+    fig.tight_layout(pad=0.6)
+
+    if path is not None:
+        plt.savefig(path)
+
+    if view:
+        plt.show()
+
+    plt.close()
+
+
+def plot_roc_curves(fprs, tprs, scores, path=None, view=False, names=None):
+    #plt.clf()
+    # Plotting the ROC curve
+    #plt.figure()
+
+    if names is None:
+        names = [""] * len(fprs)
+
+    for i, (fpr, tpr) in enumerate(zip(fprs, tprs)):
+        plt.plot(fpr, tpr, label=names[i] + f" ({round(scores[i], 2)})")
+
+    plt.plot([0, 1], [0, 1], 'k--', label='Random guess')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.0])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve')
+    plt.legend(loc='lower right')
+
+    if path is not None:
+        plt.savefig(path)
+    if view:
+        plt.show()
+    plt.close()
+
+
+""" 3D plots """
+
+
+def plot_3d_points(x1, x2, y, ax=None, title=None):
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(x1, x2, y, marker='o', color='red')
+    ax.set_xlabel('x1')
+    ax.set_ylabel('x2')
+    ax.set_zlabel('y')
+    if title is not None:
+        ax.set_title(title)
+    return ax
+
+
+def plot_mesh(x1, x2, y, ax=None, title=None, cmap=None):
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(x1, x2, y, cmap=cmap)
+    ax.set_xlabel('x1')
+    ax.set_ylabel('x2')
+    ax.set_zlabel('y')
+    if title is not None:
+        ax.set_title(title)
+    return ax
 
 
 if __name__ == '__main__':
-    _data = [[0, 1, 2, 3, 2, 3, 2], [6, 6, 6, 3, 3, 3, 6, 6, 6], [[1, 2], [4, 4], [8, 6], [9, 7]]]
-    plot_multiple_timeseries(_data, names=['cool', 'plot', 'dude'], x_label='years', title="test")
+    a = np.array([[0, 2, 3], [1, 1, 1], [0.1, 5, 0.2]])
+    b = np.array([[0, 1, 1], [1, 2, 1], [0.9, 1, 0.1]])
+    plot_heatmap(a, [a, b], view=True, names=["A", "BB"])
 
-
-
-    #my_causal_matrix = [[0.1, 0.0, 0.002, 0.5], [0.9, 0.0, 0.9, 0.0], [0.0, 0.4, 0.1, 0.3], [0.0, 0.1, 0.0, 0.7]]
-    #draw_causal_matrix(my_causal_matrix, draw_weights=False, threshold=0.0, save_fig='plots/test_graph.png')

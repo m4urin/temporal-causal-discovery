@@ -24,11 +24,11 @@ class TestResidualTemporalBlock(unittest.TestCase):
     def test_skip_connection(self):
         identity = self.x
         y = self.rtb(self.x)
-        for module in self.rtb.block:
+        for module in self.rtb.temporal_module:
             if isinstance(module, nn.Module):
                 identity = module(identity)
-        if self.rtb.downsample is not None:
-            identity = self.rtb.downsample(self.x)
+        if self.rtb.down_sample is not None:
+            identity = self.rtb.down_sample(self.x)
         print(identity[0, 0, :10])
         print(y[0, 0, :10])
         self.assertEqual(torch.allclose(y, identity))

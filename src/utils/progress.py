@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
-from typing import Generator
+from typing import Generator, Iterable, Sized
 
+import enlighten
 from tqdm import trange
 
 from definitions import GPULAB_JOB_ID
@@ -166,47 +167,215 @@ def iter_batched(data, max_batch_size: int, show_progress: bool = False, desc: s
         yield data[i * max_batch_size: (i + 1) * max_batch_size]
 
 
-def test():
+class ProgressBarTask:
     """
-    Tests the functionality of the provided code.
+    Base class for progress bar tasks.
     """
-    import time
-    global USE_CONSOLE
 
-    # Test `ProgressWriter` class
-    pw = ProgressWriter(total=10, desc="ProgressWriter Test")
-    pw.update()
-    time.sleep(1)  # Wait for 1 second to see the progress update
-    pw.update()
-    print()
+    def __init__(self, _manager: enlighten.Manager, desc=None, leave=False):
+        """
+        Initialize a progress bar task.
 
-    pw.reset(total=20, desc="ProgressWriter Reset Test")
-    for _ in range(10):
-        pw.update()
-        time.sleep(0.2)  # Wait for 1 second to see the progress update
-    print()
+        Args:
+            _manager (enlighten.Manager): The manager object for progress bars.
+            desc (str, optional): Description for the progress bar. Defaults to None.
+            leave (bool, optional): Whether to leave the progress bar after completion. Defaults to False.
+        """
+        self._manager = _manager
+        self._current_task = None
+        self.desc = desc
+        self.leave = leave
 
-    # Test `tqdm_print` function
-    data = list(range(10))
-    for _ in tqdm_print(data, "test tqdm_print"):
-        time.sleep(0.2)  # Wait for 0.1 second to see the progress update
-    print()
+    def set_description(self, desc: str):
+        """
+        Set the description for the progress bar.
 
-    # Test `trange_print` function
-    for _ in trange_print(total=10, desc="test trange_print"):
-        time.sleep(0.2)  # Wait for 0.1 second to see the progress update
-    print()
+        Args:
+            desc (str): Description for the progress bar.
+        """
+        self.desc = desc
+        if self._current_task is not None:
+            self._current_task.desc = desc
 
-    # Test `iter_with_progress` function with 'tqdm' mode
-    USE_CONSOLE = False
-    for _ in iter_with_progress(total=10, desc="test iter_with_progress (pc)"):
-        time.sleep(0.2)  # Wait for 0.1 second to see the progress update
-    print()
+    def __iter__(self):
+        """
+        Iterate over the progress bar task.
+        """
+        raise Exception('not implemented yet')
 
-    # Test `iter_with_progress` function with 'console' mode
-    USE_CONSOLE = True
-    for _ in iter_with_progress(total=10, desc="test iter_with_progress (gpulab)"):
-        time.sleep(0.2)  # Wait for 0.1 second to see the progress update
 
-    print("\nTest passed!")
+class RangeProgressBar(ProgressBarTask):
+    """
+    Progress bar task for iterating over a range.
+    """
 
+    def __init__(self, _manager: enlighten.Manager, *args, desc=None, leave=False):
+        """
+        Initialize a range progress bar task.
+
+        Args:
+            _manager (enlighten.Manager): The manager object for progress bars.
+            *args: Arguments for the range function.
+            desc (str, optional): Description for the progress bar. Defaults to None.
+            leave (bool, optional): Whether to leave the progress bar after completion. Defaults to False.
+        """
+        super().__init__(_manager, desc, leave)
+        self.range = range(*args)
+
+    def __iter__(self):
+        """
+        Iterate over the range progress bar task.
+        """
+        self._current_task = self._manager.counter(desc=self.desc, total=len(self.range), leave=self.leave)
+        for x in self.range:
+            yield x
+            self._current_task.update()
+        self._manager.remove(self._current_task)
+        self.current_task = None
+
+
+class IterProgressBar(ProgressBarTask):
+    """
+    Progress bar task for iterating over an iterable.
+    """
+
+    def __init__(self, _manager: enlighten.Manager, iterable: Iterable, total=None, desc=None, leave=False,
+                 batch_size=None):
+        """
+        Initialize an iterable progress bar task.
+
+        Args:
+            _manager (enlighten.Manager): The manager object for progress bars.
+            iterable (Iterable): The iterable object to iterate over.
+            total (int, optional): The total number of elements in the iterable. Defaults to None.
+            desc (str, optional): Description for the progress bar. Defaults to None.
+            leave (bool, optional): Whether to leave the progress bar after completion. Defaults to False.
+            batch_size (int, optional): The batch size for yielding elements. Defaults to None.
+        """
+        super().__init__(_manager, desc, leave)
+        self.iterable = iterable
+        self.batch_size = batch_size
+        self.total = total
+        if isinstance(iterable, Sized):
+            self.total = len(iterable)
+
+    def __iter__(self):
+        """
+        Iterate over the iterable progress bar task.
+        """
+        total = self.total
+        if self.batch_size is not None and self.total is not None:
+            total = self.total // self.batch_size
+            if self.total % self.batch_size != 0:
+                total += 1
+        self._current_task = self._manager.counter(desc=self.desc, total=total, leave=self.leave)
+
+        if self.batch_size is None:
+            # Iterate over the iterable and update the progress bar.
+            for x in self.iterable:
+                yield x
+                self._current_task.update()
+        elif total is None or not hasattr(self.iterable, "__getitem__"):
+            result = []
+            # Iterate over the iterable in batches and update the progress bar.
+            for x in self.iterable:
+                result.append(x)
+                if len(result) >= self.batch_size:
+                    yield result
+                    result = []
+                    self._current_task.update()
+            if len(result) > 0:
+                yield result
+                self._current_task.update()
+        else:
+            # Iterate over the iterable in batches using indexing and update the progress bar.
+            for b in range(total):
+                yield self.iterable[b * self.batch_size: (b + 1) * self.batch_size]
+                self._current_task.update()
+
+        self.set_description('[COMPLETED]')
+        self._current_task.refresh()
+        self._manager.remove(self._current_task)
+        self.current_task = None
+
+
+class RangeCounter:
+    def __init__(self, _manager: enlighten.Manager, total, desc=None, leave=False):
+        self._manager = _manager
+        self.task = _manager.counter(total=total, desc=desc, leave=leave)
+        self.count = 0
+        self.total = total
+
+    def update(self, incr: int = 1, desc=None):
+        if desc is not None:
+            self.task.desc = desc
+        self.task.update(incr)
+        self.count += incr
+        if self.count == self.total:
+            self.task.refresh()
+            self._manager.remove(self.task)
+            self.task = None
+
+
+class ProgressBarManager:
+    """
+    Manager class for progress bars.
+    """
+
+    def __init__(self):
+        """
+        Initialize a progress bar manager.
+        """
+        self.manager = enlighten.get_manager()
+        self.enabled = True
+
+    def enable(self, mode=True):
+        self.enabled = mode
+
+    def disable(self):
+        self.enable(False)
+
+    def range(self, *args, desc=None, leave=False) -> ProgressBarTask:
+        """
+        Create a range progress bar task.
+
+        Args:
+            *args: Arguments for the range function.
+            desc (str, optional): Description for the progress bar. Defaults to None.
+            leave (bool, optional): Whether to leave the progress bar after completion. Defaults to False.
+
+        Returns:
+            ProgressBarTask: The range progress bar task.
+        """
+        return RangeProgressBar(self.manager, *args, desc=desc, leave=leave)
+
+    def iter(self, iterable: Iterable, desc=None, leave=False, total=None, batch_size=None) -> ProgressBarTask:
+        """
+        Create an iterable progress bar task.
+
+        Args:
+            iterable (Iterable): The iterable object to iterate over.
+            desc (str, optional): Description for the progress bar. Defaults to None.
+            leave (bool, optional): Whether to leave the progress bar after completion. Defaults to False.
+            total (int, optional): The total number of elements in the iterable. Defaults to None.
+            batch_size (int, optional): The batch size for yielding elements. Defaults to None.
+
+        Returns:
+            ProgressBarTask: The iterable progress bar task.
+        """
+        return IterProgressBar(self.manager, iterable, total=total, desc=desc, leave=leave, batch_size=batch_size)
+
+    def counter(self, total, desc=None, leave=False) -> RangeCounter:
+        return RangeCounter(self.manager, total, desc, leave)
+
+    def stop(self):
+        """
+        Stop the progress bar manager.
+        """
+        self.manager.stop()
+
+    def __del__(self):
+        """
+        Clean up the progress bar manager.
+        """
+        self.stop()

@@ -3,7 +3,7 @@ import numbers
 
 import torch
 
-from src.data.dataset import Dataset
+from src.data.timeseries_data import TimeSeriesData
 
 
 def short_scientific_notation(x, decimals=2):
@@ -78,13 +78,13 @@ def dict_to_url(d: dict):
             d_str[k] = short_number(v)
         elif isinstance(v, type):
             d_str[k] = v.__name__
-        elif isinstance(v, Dataset):
-            if v.name is not None:
-                d_str['experiment'] = v.name
+        elif isinstance(v, TimeSeriesData):
             d_str['batch_size'] = v.batch_size
             d_str['num_variables'] = v.num_variables
             d_str['sequence_length'] = v.sequence_length
         elif isinstance(v, torch.Tensor):
             d_str[k] = str(v.size()).split('.')[1]
+        elif isinstance(v, dict):
+            d_str[k] = "{" + dict_to_url(v) + "}"
 
     return ", ".join([f"{k}={v}" for k, v in d_str.items()])
