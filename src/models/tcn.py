@@ -18,20 +18,41 @@ class TCN(nn.Module):
     - WSRecTCN (Weight Sharing Recurrent TCN): TCN model with both weight sharing and recurrent temporal layers.
 
     Args:
-        weight_sharing (bool, optional): Whether to enable weight sharing in the TCN. Default is False.
-        recurrent (bool, optional): Whether to enable recurrence in the TCN. Default is False.
-        **kwargs: Additional keyword arguments to be passed to the underlying TCN variant's constructor.
+        in_channels (int): Number of input channels.
+        out_channels (int): Number of output channels.
+        hidden_dim (int): Hidden dimension of the model.
+        kernel_size (int): Kernel size for the convolutional layers.
+        n_blocks (int, optional): Number of blocks in the TCN (default: 2).
+        n_layers_per_block (int, optional): Number of layers per block in the TCN (default: 2).
+        groups (int, optional): Number of groups for each Conv1d layer (default: 1).
+        dropout (float, optional): Dropout probability for the convolutional layers (default: 0.0).
+        weight_sharing (bool, optional): Whether to use weight sharing in the TCN (default: False).
+        recurrent (bool, optional): Whether to use recurrent temporal layers (default: False).
     """
-    def __init__(self, weight_sharing=False, recurrent=False, **kwargs):
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 hidden_dim: int,
+                 kernel_size: int,
+                 n_blocks: int = 2,
+                 n_layers_per_block: int = 2,
+                 groups: int = 1,
+                 dropout: float = 0.0,
+                 weight_sharing: bool = False,
+                 recurrent: bool = False):
         super().__init__()
         if weight_sharing and recurrent:
-            self.tcn = WSRecTCN(**kwargs)
+            self.tcn = WeightSharingRecurrentTCN(in_channels, out_channels, hidden_dim, kernel_size,
+                                                 n_blocks, n_layers_per_block, groups, dropout)
         elif weight_sharing:
-            self.tcn = WSTCN(**kwargs)
+            self.tcn = WeightSharingTCN(in_channels, out_channels, hidden_dim, kernel_size,
+                                        n_blocks, n_layers_per_block, groups, dropout)
         elif recurrent:
-            self.tcn = RecTCN(**kwargs)
+            self.tcn = RecurrentTCN(in_channels, out_channels, hidden_dim, kernel_size,
+                                    n_blocks, n_layers_per_block, groups, dropout)
         else:
-            self.tcn = DefaultTCN(**kwargs)
+            self.tcn = DefaultTCN(in_channels, out_channels, hidden_dim, kernel_size,
+                                  n_blocks, n_layers_per_block, groups, dropout)
 
     def forward(self, x):
         """
@@ -125,7 +146,7 @@ class DefaultTCN(TemporalModule):
         return self.seq(x)
 
 
-class RecTCN(TemporalModule):
+class RecurrentTCN(TemporalModule):
     """
     A Recurrent Temporal Convolutional Network (Rec-TCN) model that consists of a first Temporal Block
     followed by a series of Recurrent Blocks. The Rec-TCN is designed to take in temporal sequences of data
@@ -226,7 +247,7 @@ class RecTCN(TemporalModule):
         return self.predictions(x)
 
 
-class WSTCN(TemporalModule):
+class WeightSharingTCN(TemporalModule):
     """
     A Weight Sharing Temporal Convolutional Network (WS-TCN) implementation. Weight sharing reduces
     the number of parameters and makes the model more efficient. Positional encoding provides information
@@ -337,7 +358,7 @@ class WSTCN(TemporalModule):
         return x
 
 
-class WSRecTCN(TemporalModule):
+class WeightSharingRecurrentTCN(TemporalModule):
     """
     A Recurrent Temporal Convolutional Network (Rec-TCN) model that consists of a first Temporal Block
     followed by a series of Recurrent Blocks. The Rec-TCN is designed to take in temporal sequences of data
@@ -445,4 +466,3 @@ class WSRecTCN(TemporalModule):
 
         # Pass the output through the final prediction layer
         return self.predictions(x)
-
