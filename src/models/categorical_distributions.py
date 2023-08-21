@@ -4,22 +4,54 @@ from torch import nn
 
 class GumbelSoftmax(nn.Module):
     def __init__(self, tau: float = 1, dim=-1):
+        """
+        Initializes a Gumbel Softmax module.
+
+        Args:
+            tau (float): The temperature parameter for controlling the relaxation during sampling.
+            dim (int): The dimension along which the softmax is applied.
+        """
         super().__init__()
         self.dim = dim
         self.tau_inverse = 1.0 / tau
 
     def forward(self, x):
+        """
+        Forward pass of the Gumbel Softmax module. The sampling is only applied during training.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after applying Gumbel Softmax.
+        """
         if self.training:
+            # Gumbel-softmax sampling: add Gumbel noise to the input and then apply softmax
             x = x - torch.empty_like(x).exponential_().log()
         return torch.softmax(self.tau_inverse * x, dim=self.dim)
 
 
 class Softmax_1(nn.Module):
     def __init__(self, dim=-1):
+        """
+        Initializes a Softmax_1 module.
+
+        Args:
+            dim (int): The dimension along which the softmax is applied.
+        """
         super().__init__()
         self.dim = dim
 
     def forward(self, x):
+        """
+        Forward pass of the Softmax_1 module.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after applying Softmax_1.
+        """
         maxes = torch.max(x, dim=self.dim, keepdim=True)[0]
         x_exp = torch.exp(x - maxes)
         return x_exp / (torch.exp(-maxes) + torch.sum(x_exp, dim=self.dim, keepdim=True))
@@ -27,30 +59,50 @@ class Softmax_1(nn.Module):
 
 class NormalizedSigmoid(nn.Module):
     def __init__(self, dim=-1):
+        """
+        Initializes a NormalizedSigmoid module.
+
+        Args:
+            dim (int): The dimension along which the sigmoid is applied.
+        """
         super().__init__()
         self.dim = dim
 
     def forward(self, x):
+        """
+        Forward pass of the NormalizedSigmoid module.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after applying NormalizedSigmoid.
+        """
         z = torch.sigmoid(x)
         return z / (1e-9 + torch.sum(z, dim=self.dim, keepdim=True))
 
 
 class SparseMax(nn.Module):
     def __init__(self, dim=-1):
+        """
+        Initializes a SparseMax module.
+
+        Args:
+            dim (int): The dimension along which the SparseMax is applied.
+        """
         super(SparseMax, self).__init__()
         self.dim = dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Computes the sparsemax operation along a specified dimension of the input tensor.
+        Forward pass of the SparseMax module.
 
         Args:
-            x (torch.Tensor): The input tensor.
+            x (torch.Tensor): Input tensor.
 
         Returns:
-            torch.Tensor: The output tensor after applying sparsemax.
+            torch.Tensor: Output tensor after applying SparseMax.
         """
-
         # Sort the input tensor in descending order along the specified dimension
         x_sorted = torch.sort(x, dim=self.dim, descending=True).values
 
