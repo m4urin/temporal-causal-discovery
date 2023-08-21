@@ -2,6 +2,30 @@ import torch
 from torch import nn
 
 
+def get_softmax_method(name: str):
+    """
+    Returns a specified softmax activation method as a torch.nn.Module object.
+
+    Args:
+        name (str): Name of the desired softmax activation method.
+
+    Raises:
+        NotImplementedError: If the provided method name is not valid.
+    """
+    if name == 'softmax':
+        return nn.Softmax(dim=-1)
+    elif name == 'softmax-1':
+        return Softmax_1(dim=-1)
+    elif name == 'normalized-sigmoid':
+        return NormalizedSigmoid(dim=-1)
+    elif name == 'gumbel-softmax':
+        return GumbelSoftmax(dim=-1)
+    elif name == 'sparsemax':
+        return SparseMax(dim=-1)
+    else:
+        raise NotImplementedError(f"Method '{name}' is not a valid method.")
+
+
 class GumbelSoftmax(nn.Module):
     def __init__(self, tau: float = 1, dim=-1):
         """
@@ -90,7 +114,7 @@ class SparseMax(nn.Module):
         Args:
             dim (int): The dimension along which the SparseMax is applied.
         """
-        super(SparseMax, self).__init__()
+        super().__init__()
         self.dim = dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
