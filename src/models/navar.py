@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from src.models.TCN import TCN
+from src.models.losses import DER_loss, NAVAR_regularization_loss, NLL_loss
 from src.utils import weighted_std, sliding_window_std, weighted_sliding_window_std, count_parameters
 
 
@@ -121,12 +122,10 @@ class NAVAR_Default(nn.Module):
     @staticmethod
     def loss_function(y_true, prediction, contributions, lambda1=0.2):
         # Mean squared error loss
-        error = nn.functional.mse_loss(prediction, y_true)
+        loss = nn.functional.mse_loss(prediction, y_true)
+        regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
 
-        # Regularization term based on absolute contributions
-        regularization = contributions.abs().mean()
-
-        return error + lambda1 * regularization
+        return loss + regularization
 
 
 class NAVAR_Aleatoric(nn.Module):
@@ -202,13 +201,10 @@ class NAVAR_Aleatoric(nn.Module):
 
     @staticmethod
     def loss_function(y_true, prediction, contributions, log_var_aleatoric, lambda1=0.2):
-        # Calculate aleatoric loss
-        aleatoric_loss = torch.mean(log_var_aleatoric + (prediction - y_true).pow(2) * torch.exp(-log_var_aleatoric))
+        aleatoric_loss = NLL_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric)
+        regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
 
-        # Regularization term based on absolute contributions
-        regularization = contributions.abs().mean()
-
-        return aleatoric_loss + lambda1 * regularization
+        return aleatoric_loss + regularization
 
 
 class NAVAR_Epistemic(nn.Module):
@@ -250,7 +246,7 @@ class NAVAR_Epistemic(nn.Module):
     def forward(self, x):
         batch_size, n, seq = x.size()
 
-        log_v, log_beta = self.epistemic(x).chunk(chunks=2, dim=1)  # (batch_size, n, seq)
+        log_v, log_beta = self.epistemic(x).chunk(2, dim=2)  # (batch_size, n, seq)
         log_var_aleatoric = log_beta - log_v
 
         # Calculate contributions
@@ -295,13 +291,10 @@ class NAVAR_Epistemic(nn.Module):
     @staticmethod
     def loss_function(y_true, prediction, contributions, log_var_aleatoric, log_v, lambda1=0.2, coeff=1e-1):
         # Calculate epistemic uncertainty term
-        error = (1.0 + coeff * torch.exp(log_v)) * (prediction - y_true).pow(2)
-        epistemic_loss = torch.mean(log_var_aleatoric + error * torch.exp(-log_var_aleatoric))
+        epistemic_loss = DER_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric, log_v=log_v, coeff=coeff)
+        regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
 
-        # Regularization term based on absolute contributions
-        regularization = contributions.abs().mean()
-
-        return epistemic_loss + lambda1 * regularization
+        return epistemic_loss + regularization
 
 
 class NAVAR_Uncertainty(nn.Module):
@@ -405,14 +398,9 @@ class NAVAR_Uncertainty(nn.Module):
     def loss_function(y_true, prediction, contributions, log_var_aleatoric, log_v,
                       log_var_aleatoric_contr, log_v_contr, lambda1=0.2, coeff=1e-1):
         # Calculate epistemic uncertainty term for individual contributions
-        error = (1.0 + coeff * torch.exp(log_v_contr)) * (contributions - y_true.unsqueeze(1)).pow(2)
-        epistemic_loss_contr = torch.mean(log_var_aleatoric_contr + error * torch.exp(-log_var_aleatoric_contr))
+        epistemic_loss_contr = DER_loss(y_true=y_true.unsqueeze(1), y_pred=contributions,
+                                        log_var=log_var_aleatoric_contr, log_v=log_v_contr, coeff=coeff)
+        epistemic_loss = DER_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric, log_v=log_v, coeff=coeff)
+        regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
 
-        # Calculate epistemic uncertainty term for predictions
-        error_out = (1.0 + coeff * torch.exp(log_v)) * (prediction - y_true).pow(2)
-        epistemic_loss = torch.mean(log_var_aleatoric + error_out * torch.exp(-log_var_aleatoric))
-
-        # Regularization term based on absolute contributions
-        regularization = contributions.abs().mean()
-
-        return epistemic_loss_contr + epistemic_loss + lambda1 * regularization
+        return epistemic_loss_contr + epistemic_loss + regularization
