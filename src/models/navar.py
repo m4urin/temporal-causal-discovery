@@ -1,7 +1,7 @@
 import torch
 from torch import nn
-from src.models.tcn import TCN
-from src.utils.pytorch import count_parameters
+from src.models.TCN import TCN
+from src.utils import weighted_std, sliding_window_std, weighted_sliding_window_std, count_parameters
 
 
 class NAVAR(nn.Module):
@@ -12,7 +12,7 @@ class NAVAR(nn.Module):
     each handling different types of uncertainties and information.
     - NAVAR_Aleatoric: learns aleatoric uncertainty of output predictions
     - NAVAR_Epistemic: learns epistemic uncertainty in addition to aleatoric uncertainty of output predictions
-    - NAVAR_Uncertainty: provides epistemic and eleatoric uncertainties of individual contributions and final predictions
+    - NAVAR_Uncertainty: provides epistemic and eleatoric uncertainties over the contributions and final predictions
 
     Args:
         n_variables (int): Number of variables in the time series.
@@ -29,13 +29,12 @@ class NAVAR(nn.Module):
 
     Methods:
         forward(x_input): Forward pass through the NAVAR model.
-        loss_function(*args, **kwargs): Compute the loss for training.
-        analysis(x_input): Perform analysis using the NAVAR model.
+        loss_function(y_true, **kwargs): Compute the loss for training.
+        analysis(**kwargs): Perform analysis using the NAVAR model.
     """
-
     def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                  dropout=0.0, weight_sharing=False, recurrent=False,
-                 aleatoric=False, epistemic=False, uncertainty_contributions=False, **kwargs):
+                 aleatoric=False, epistemic=False, uncertainty_contributions=False):
         super().__init__()
         if uncertainty_contributions:
             self.navar = NAVAR_Uncertainty(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
@@ -50,28 +49,23 @@ class NAVAR(nn.Module):
             self.navar = NAVAR_Default(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                                        dropout, weight_sharing, recurrent)
 
-        # Retrieve attributes from the selected NAVAR variation
-        self.receptive_field = self.navar.receptive_field
+        self.receptive_field = (2 ** n_blocks - 1) * n_layers_per_block * (kernel_size - 1) + 1
         self.n_params = count_parameters(self)
 
-    def forward(self, x_input):
-        """
-        Forward pass through the NAVAR model.
+    def forward(self, x):
+        return self.navar(x)
 
-        Args:
-            x_input (torch.Tensor): Input time series data of shape (batch_size, n_variables, sequence_length).
+    def loss_function(self, y_true, **kwargs):
+        return self.navar.loss_function(y_true, **kwargs)
 
-        Returns:
-            tuple: Tuple containing the results.
-        """
-        return self.navar(x_input)
-
-    def loss_function(self, y_true, *args, **kwargs):
-        return self.navar.loss_function(y_true, *args, **kwargs)
-
-    def analysis(self, x_input):
+    def analysis(self, **kwargs):
+        mode = self.training
+        self.eval()
         with torch.no_grad():
-            return self.navar.analysis(x_input)
+            result = self.navar.analysis(**kwargs)
+            result = {k: v.cpu().numpy() for k, v in result.items()}
+        self.train(mode)
+        return result
 
 
 class NAVAR_Default(nn.Module):
@@ -96,18 +90,36 @@ class NAVAR_Default(nn.Module):
         # Learnable biases
         self.biases = nn.Parameter(torch.ones(1, n_variables, 1) * 0.01)
 
-    def forward(self, x_input):
-        batch_size, n, seq = x_input.size()
+    def forward(self, x):
+        batch_size, n, seq = x.size()
 
         # Calculate contributions: (batch_size, n, seq) -> (batch_size, n * n, seq) -> (batch_size, n, n, seq)
-        contributions = self.contributions(x_input).reshape(batch_size, n, n, seq)
+        contributions = self.contributions(x).reshape(batch_size, n, n, seq)
 
         # Sum contributions and add biases
         prediction = contributions.sum(dim=1) + self.biases
 
-        return prediction, contributions
+        return {
+            'prediction': prediction,
+            'contributions': contributions.transpose(1, 2)
+        }
 
-    def loss_function(self, y_true, prediction, contributions, lambda1=0.2):
+    @staticmethod
+    def analysis(prediction, contributions):
+        # Calculate aleatoric and epistemic uncertainties
+        # contributions: (bs, n, n, sequence_length)
+        temp_causal_matrix = sliding_window_std(contributions, window=(25, 25), dim=-1)  # (bs, n, n, sequence_length)
+        default_causal_matrix = contributions.std(dim=-1)  # (bs, n, n)
+
+        return {
+            'prediction': prediction,
+            'contributions': contributions,
+            'default_causal_matrix': default_causal_matrix,
+            'temp_causal_matrix': temp_causal_matrix
+        }
+
+    @staticmethod
+    def loss_function(y_true, prediction, contributions, lambda1=0.2):
         # Mean squared error loss
         error = nn.functional.mse_loss(prediction, y_true)
 
@@ -115,10 +127,6 @@ class NAVAR_Default(nn.Module):
         regularization = contributions.abs().mean()
 
         return error + lambda1 * regularization
-
-    def analysis(self, x_input):
-        prediction, contributions = self.forward(x_input)
-        return prediction, contributions
 
 
 class NAVAR_Aleatoric(nn.Module):
@@ -157,21 +165,43 @@ class NAVAR_Aleatoric(nn.Module):
         # Learnable biases
         self.biases = nn.Parameter(torch.ones(1, n_variables, 1) * 0.01)
 
-    def forward(self, x_input):
-        batch_size, n, seq = x_input.size()
+    def forward(self, x):
+        batch_size, n, seq = x.size()
 
         # Calculate aleatoric uncertainty
-        log_var_aleatoric = self.aleatoric(x_input)  # (batch_size, n, seq)
+        log_var_aleatoric = self.aleatoric(x)  # (batch_size, n, seq)
 
         # Calculate contributions
-        contributions = self.contributions(x_input).reshape(batch_size, n, n, seq)
+        contributions = self.contributions(x).reshape(batch_size, n, n, seq)
 
         # Sum contributions and add biases
         prediction = contributions.sum(dim=1) + self.biases
 
-        return prediction, contributions, log_var_aleatoric
+        return {
+            'prediction': prediction,
+            'contributions': contributions.transpose(1, 2),
+            'log_var_aleatoric': log_var_aleatoric
+        }
 
-    def loss_function(self, y_true, prediction, contributions, log_var_aleatoric, lambda1=0.2):
+    @staticmethod
+    def analysis(prediction, contributions, log_var_aleatoric):
+        # Calculate aleatoric and epistemic uncertainties
+        # contributions: (bs, n, n, sequence_length)
+        aleatoric = torch.exp(0.5 * log_var_aleatoric)  # (bs, n, sequence_length))
+
+        temp_causal_matrix = sliding_window_std(contributions, window=(25, 25), dim=-1)  # (bs, n, n, sequence_length)
+        default_causal_matrix = contributions.std(dim=-1)  # (bs, n, n)
+
+        return {
+            'prediction': prediction,
+            'contributions': contributions,
+            'aleatoric': aleatoric,
+            'default_causal_matrix': default_causal_matrix,
+            'temp_causal_matrix': temp_causal_matrix
+        }
+
+    @staticmethod
+    def loss_function(y_true, prediction, contributions, log_var_aleatoric, lambda1=0.2):
         # Calculate aleatoric loss
         aleatoric_loss = torch.mean(log_var_aleatoric + (prediction - y_true).pow(2) * torch.exp(-log_var_aleatoric))
 
@@ -179,14 +209,6 @@ class NAVAR_Aleatoric(nn.Module):
         regularization = contributions.abs().mean()
 
         return aleatoric_loss + lambda1 * regularization
-
-    def analysis(self, x_input):
-        prediction, contributions, log_var_aleatoric = self.forward(x_input)
-
-        # Calculate aleatoric uncertainty
-        aleatoric = torch.exp(0.5 * log_var_aleatoric)
-
-        return prediction, contributions, aleatoric
 
 
 class NAVAR_Epistemic(nn.Module):
@@ -225,21 +247,53 @@ class NAVAR_Epistemic(nn.Module):
         # Learnable biases
         self.biases = nn.Parameter(torch.ones(1, n_variables, 1) * 0.01)
 
-    def forward(self, x_input):
-        batch_size, n, seq = x_input.size()
+    def forward(self, x):
+        batch_size, n, seq = x.size()
 
-        log_v, log_beta = self.epistemic(x_input).chunk(chunks=2, dim=1)  # (batch_size, n, seq)
+        log_v, log_beta = self.epistemic(x).chunk(chunks=2, dim=1)  # (batch_size, n, seq)
         log_var_aleatoric = log_beta - log_v
 
         # Calculate contributions
-        contributions = self.contributions(x_input).reshape(batch_size, n, n, seq)
+        contributions = self.contributions(x).reshape(batch_size, n, n, seq)
 
         # Sum contributions and add biases
         prediction = contributions.sum(dim=1) + self.biases
 
-        return prediction, contributions, log_var_aleatoric, log_v
+        return {
+            'prediction': prediction,
+            'contributions': contributions.transpose(1, 2),
+            'log_var_aleatoric': log_var_aleatoric,
+            'log_v': log_v
+        }
 
-    def loss_function(self, y_true, prediction, contributions, log_var_aleatoric, log_v, lambda1=0.2, coeff=1e-1):
+    @staticmethod
+    def analysis(prediction, contributions, log_var_aleatoric, log_v):
+        # Calculate aleatoric and epistemic uncertainties
+        # contributions: (bs, n, n, sequence_length)
+        aleatoric = torch.exp(0.5 * log_var_aleatoric)  # (bs, n, sequence_length)
+        epistemic = torch.exp(-0.5 * log_v)  # (bs, n, sequence_length)
+        epistemic_contr = epistemic.unsqueeze(2).expand(-1, -1, epistemic.size(1), -1)  # (bs, n, n, sequence_length)
+
+        temp_confidence_matrix = 1 / epistemic_contr  # (bs, n, n, sequence_length)
+        temp_causal_matrix = weighted_sliding_window_std(contributions, weights=temp_confidence_matrix,
+                                                         window=(25, 25), dim=-1)  # (bs, n, n, sequence_length)
+
+        default_confidence_matrix = temp_confidence_matrix.mean(dim=-1)  # (bs, n, n)
+        default_causal_matrix = weighted_std(contributions, weights=temp_confidence_matrix, dim=-1)  # (bs, n, n)
+
+        return {
+            'prediction': prediction,
+            'contributions': contributions,
+            'aleatoric': aleatoric,
+            'epistemic': epistemic,
+            'default_causal_matrix': default_causal_matrix,
+            'default_confidence_matrix': default_confidence_matrix,
+            'temp_causal_matrix': temp_causal_matrix,
+            'temp_confidence_matrix': temp_confidence_matrix,
+        }
+
+    @staticmethod
+    def loss_function(y_true, prediction, contributions, log_var_aleatoric, log_v, lambda1=0.2, coeff=1e-1):
         # Calculate epistemic uncertainty term
         error = (1.0 + coeff * torch.exp(log_v)) * (prediction - y_true).pow(2)
         epistemic_loss = torch.mean(log_var_aleatoric + error * torch.exp(-log_var_aleatoric))
@@ -248,15 +302,6 @@ class NAVAR_Epistemic(nn.Module):
         regularization = contributions.abs().mean()
 
         return epistemic_loss + lambda1 * regularization
-
-    def analysis(self, x_input):
-        prediction, contributions, log_var_aleatoric, log_v = self.forward(x_input)
-
-        # Calculate aleatoric and epistemic uncertainties
-        aleatoric = torch.exp(0.5 * log_var_aleatoric)
-        epistemic = torch.exp(-0.5 * log_v)
-
-        return prediction, contributions, aleatoric, epistemic
 
 
 class NAVAR_Uncertainty(nn.Module):
@@ -295,22 +340,69 @@ class NAVAR_Uncertainty(nn.Module):
         # Learnable biases
         self.biases = nn.Parameter(torch.ones(1, n_variables, 1) * 0.01)
 
-    def forward(self, x_input):
-        batch_size, n, seq = x_input.size()
+    def forward(self, x):
+        batch_size, n, seq = x.size()
 
         # Calculate uncertainties for individual contributions
-        contributions, log_v_contr, log_beta_contr = self.contributions(x_input).reshape(batch_size, n, 3 * n, seq).chunk(chunks=3, dim=2)
+        contr = self.contributions(x).reshape(batch_size, n, 3 * n, seq)
+        contributions, log_v_contr, log_beta_contr = contr.chunk(chunks=3, dim=2)
+
         log_var_aleatoric_contr = log_beta_contr - log_v_contr
 
-        log_v, log_beta = self.uncertainty(x_input).reshape(batch_size, n, 2 * n, seq).chunk(chunks=2, dim=2)
+        log_v, log_beta = self.uncertainty(x).reshape(batch_size, n, 2 * n, seq).chunk(chunks=2, dim=2)
         log_var_aleatoric = log_beta - log_v
 
         # Calculate contributions and predictions
         prediction = contributions.sum(dim=1) + self.biases
 
-        return prediction, contributions, log_var_aleatoric, log_v, log_var_aleatoric_contr, log_v_contr
+        return {
+            'prediction': prediction,
+            'contributions': contributions.transpose(1, 2),
+            'log_var_aleatoric': log_var_aleatoric,
+            'log_v': log_v,
+            'log_var_aleatoric_contr': log_var_aleatoric_contr.transpose(1, 2),
+            'log_v_contr': log_v_contr.transpose(1, 2)
+        }
 
-    def loss_function(self, y_true, prediction, contributions, log_var_aleatoric, log_v,
+    @staticmethod
+    def analysis(prediction, contributions, log_var_aleatoric, log_v, log_var_aleatoric_contr, log_v_contr):
+        # Calculate aleatoric and epistemic uncertainties
+        # contributions: (bs, n, n, sequence_length)
+        aleatoric_contr = torch.exp(0.5 * log_var_aleatoric_contr)  # (bs, n, n, sequence_length)
+        epistemic_contr = torch.exp(-0.5 * log_v_contr)  # (bs, n, n, sequence_length)
+        aleatoric = torch.exp(0.5 * log_var_aleatoric)  # (bs, n, sequence_length)
+        epistemic = torch.exp(-0.5 * log_v)  # (bs, n, sequence_length)
+
+        temp_confidence_matrix = 1 / epistemic_contr  # (bs, n, n, sequence_length)
+
+        a1 = contributions + 2 * aleatoric_contr
+        a2 = contributions - 2 * aleatoric_contr
+
+        temp_c1 = weighted_sliding_window_std(a1, weights=temp_confidence_matrix, window=(25, 25), dim=-1)
+        temp_c2 = weighted_sliding_window_std(a2, weights=temp_confidence_matrix, window=(25, 25), dim=-1)
+        temp_causal_matrix = (temp_c1 + temp_c2) / 2  # (bs, n, n, sequence_length)
+
+        default_confidence_matrix = temp_confidence_matrix.mean(dim=-1)  # (bs, n, n)
+
+        default_c1 = weighted_std(a1, weights=temp_confidence_matrix, dim=-1)
+        default_c2 = weighted_std(a2, weights=temp_confidence_matrix, dim=-1)
+        default_causal_matrix = (default_c1 + default_c2) / 2  # (bs, n, n, sequence_length)
+
+        return {
+            'prediction': prediction,
+            'contributions': contributions,
+            'aleatoric': aleatoric,
+            'epistemic': epistemic,
+            'aleatoric_contr': aleatoric_contr,
+            'epistemic_contr': epistemic_contr,
+            'default_causal_matrix': default_causal_matrix,
+            'default_confidence_matrix': default_confidence_matrix,
+            'temp_causal_matrix': temp_causal_matrix,
+            'temp_confidence_matrix': temp_confidence_matrix,
+        }
+
+    @staticmethod
+    def loss_function(y_true, prediction, contributions, log_var_aleatoric, log_v,
                       log_var_aleatoric_contr, log_v_contr, lambda1=0.2, coeff=1e-1):
         # Calculate epistemic uncertainty term for individual contributions
         error = (1.0 + coeff * torch.exp(log_v_contr)) * (contributions - y_true.unsqueeze(1)).pow(2)
@@ -324,14 +416,3 @@ class NAVAR_Uncertainty(nn.Module):
         regularization = contributions.abs().mean()
 
         return epistemic_loss_contr + epistemic_loss + lambda1 * regularization
-
-    def analysis(self, x_input):
-        prediction, contributions, log_var_aleatoric, log_v, log_var_aleatoric_contr, log_v_contr = self.forward(x_input)
-
-        # Calculate aleatoric and epistemic uncertainties
-        aleatoric = torch.exp(0.5 * log_var_aleatoric)
-        aleatoric_contr = torch.exp(0.5 * log_var_aleatoric_contr)
-        epistemic = torch.exp(-0.5 * log_v)
-        epistemic_contr = torch.exp(-0.5 * log_v_contr)
-
-        return prediction, contributions, aleatoric, epistemic, aleatoric_contr, epistemic_contr
