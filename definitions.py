@@ -6,6 +6,7 @@ from datetime import datetime
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results')
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 """ GPULab """
 GPULAB_JOB_ID = None
