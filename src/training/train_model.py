@@ -34,14 +34,14 @@ def train_model(model: str, train_data: torch.Tensor, lr: float, epochs: int, we
     else:
         raise NotImplementedError('Not supported!')
 
-    # Move model and synthetic_data to GPU if available
+    # Move model and data to GPU if available
     if torch.cuda.is_available():
         model = model.cuda()
         train_data = train_data.cuda()
         if true_causal_matrix is not None:
             true_causal_matrix = true_causal_matrix.cuda()
 
-    # Split synthetic_data into training and testing sets
+    # Split data into training and testing sets
     x_test, y_test, gt_test, x_train, y_train, gt_train = split_data(train_data, true_causal_matrix, test_size)
 
     # Optimizers
@@ -114,12 +114,12 @@ def eval_epoch(model, model_output, gt=None):
 
 
 def split_data(data: torch.Tensor, true_causal_matrix: torch.Tensor = None, test_size: float = 0):
-    """Splits synthetic_data into training and testing sets."""
+    """Splits data into training and testing sets."""
     # Check for valid test_size
     if not (0.0 <= test_size <= 1.0):
         raise ValueError("test_size should be between 0.0 and 1.0, inclusive.")
 
-    # Function to split synthetic_data or matrix
+    # Function to split data or matrix
     def split_train_test(tensor_: torch.Tensor, s: int):
         return tensor_[..., :-s], tensor_[..., -s:]
 

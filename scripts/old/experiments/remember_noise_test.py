@@ -14,7 +14,7 @@ model = NAVAR_TCN(n_variables=3, hidden_dim=8, kernel_size=2, n_blocks=3, n_laye
 print('n_parameters per var:', count_parameters(model) // 3)
 print('receptive field:', model.receptive_field)
 
-# Generate random synthetic_data
+# Generate random data
 batch_size = 1
 sequence_length = 800
 data = torch.randn(batch_size, 3, sequence_length + 1)

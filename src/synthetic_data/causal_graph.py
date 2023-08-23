@@ -137,7 +137,7 @@ def construct_temporaneous_data(causal_graphs_milestones: list[tuple[int, Synthe
     total_nodes = internal_nodes + external_nodes
     max_lags = max(cg.max_lags for _, cg in causal_graphs_milestones)
 
-    # Generate random synthetic_data
+    # Generate random data
     data = noise_factor * torch.randn(total_nodes, max_lags + warmup + sequence_length + 1,
                                       device='cuda' if torch.cuda.is_available() else 'cpu')
     data_mean = torch.zeros_like(data)
@@ -148,7 +148,7 @@ def construct_temporaneous_data(causal_graphs_milestones: list[tuple[int, Synthe
     causal_graphs_milestones = list(causal_graphs_milestones)
     with torch.no_grad():
         _, current_graph = causal_graphs_milestones.pop(0)
-        for i in trange(current_graph.max_lags, data.size(-1), desc='Generating temporal synthetic_data..'):
+        for i in trange(current_graph.max_lags, data.size(-1), desc='Generating temporal data..'):
             if len(causal_graphs_milestones) > 0 and causal_graphs_milestones[0][0] == i - offset:
                 _, current_graph = causal_graphs_milestones.pop(0)
             effect_without_noise = current_graph.forward(data[:, i - current_graph.max_lags:i])

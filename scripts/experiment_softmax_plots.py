@@ -58,12 +58,12 @@ if __name__ == '__main__':
     if not os.path.exists(data_path):
         causal_data = construct_temporal_causal_data(num_nodes=5, max_lags=10, sequence_length=1252,
                                                      num_external=1, external_connections=1)
-        causal_data.plot('Causal synthetic_data', view=True,
+        causal_data.plot('Causal data', view=True,
                          folder_path=os.path.join(RESULTS_DIR, "training/experiment_softmax"))
         torch.save(causal_data, data_path)
     else:
         causal_data = torch.load(data_path)
-        causal_data.plot('Causal synthetic_data', view=False,
+        causal_data.plot('Causal data', view=False,
                          folder_path=os.path.join(RESULTS_DIR, "training/experiment_softmax"))
 
     gt = causal_data.causal_graph.get_causal_matrix(exclude_max_lags=True, exclude_external_incoming=True)

@@ -49,12 +49,12 @@ if __name__ == '__main__':
     if not os.path.exists(data_path):
         causal_data = construct_temporal_causal_data(num_nodes=6, max_lags=15, sequence_length=1000,
                                                      num_external=2, external_connections=2)
-        causal_data.plot('Causal synthetic_data', view=True,
+        causal_data.plot('Causal data', view=True,
                          folder_path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2"))
         torch.save(causal_data, data_path)
     else:
         causal_data = torch.load(data_path)
-        causal_data.plot('Causal synthetic_data', view=False,
+        causal_data.plot('Causal data', view=False,
                          folder_path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2"))
 
     causal_results = run("4_navar_vs_attention_2/causal", causal_data.timeseries_data.train_data)  # length=4

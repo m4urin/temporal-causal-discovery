@@ -1,6 +1,6 @@
 import torch
 
-from src.data.timeseries_data import toy_data_chain_noise
+from src.synthetic_data.timeseries_data import toy_data_chain_noise
 from src.models.implementations.navar import NAVAR_SMALL
 from src.experiments.train_model import train_model
 from src.utils.visualisations import draw_causal_matrix

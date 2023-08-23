@@ -240,7 +240,7 @@ def test_models():
         ax = plot_mesh(*mesh_data_additive[i], ax=ax, cmap='winter', label='Additive Model',
                        label_color=np.array([[7.0, 148, 168, 256]])/256)
         x1, x2, y = points_3d[i]
-        ax = plot_3d_points(x1, x2, y + 0.02, ax=ax, label='Random generation synthetic_data')
+        ax = plot_3d_points(x1, x2, y + 0.02, ax=ax, label='Random generation data')
 
         plt.legend()
         ax.view_init(azim=60, elev=20)

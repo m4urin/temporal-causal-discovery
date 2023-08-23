@@ -68,7 +68,7 @@ def generate_architecture_options(max_lags, marge, minimum_num_options=1,
 # --------- Datasets ---------
 
 def load_synthetic_data(name: str):
-    """ Load and preprocess synthetic synthetic_data from a zip file. """
+    """ Load and preprocess synthetic data from a zip file. """
     directory = os.path.join(DATA_DIR, 'synthetic')
     pt_file = os.path.join(directory, f"{name}.pt")
 
@@ -81,14 +81,14 @@ def load_synthetic_data(name: str):
 
     return preprocess_data(
         name=name,
-        data=data['synthetic_data'].unsqueeze(0),
+        data=data['data'].unsqueeze(0),
         data_mean=data['data_mean'].unsqueeze(0),
         gt=data['gt'].unsqueeze(0).float()
     )
 
 
 def load_causeme_data(name: str):
-    """ Load and preprocess CauseMe synthetic_data from a zip file. """
+    """ Load and preprocess CauseMe data from a zip file. """
     zip_file = os.path.join(DATA_DIR, 'causeme', f"{name}.zip")
 
     with zipfile.ZipFile(zip_file, 'r') as f:
@@ -99,11 +99,11 @@ def load_causeme_data(name: str):
 
 
 def preprocess_data(name, data, data_mean=None, gt=None):
-    """ Preprocess synthetic_data by normalizing and optional preprocessing of mean and ground truth. """
+    """ Preprocess data by normalizing and optional preprocessing of mean and ground truth. """
     means = data.mean(dim=-1, keepdim=True)
     stds = data.std(dim=-1, keepdim=True)
     data = (data - means) / stds
-    result = {'name': name, 'synthetic_data': data}
+    result = {'name': name, 'data': data}
     if data_mean is not None:
         result['data_mean'] = (data_mean - means) / stds
     if gt is not None:
@@ -366,7 +366,7 @@ def tensor_dict_to_str(obj):
 
 def valid_number(data_type, min_incl=None, min_excl=None, max_incl=None, max_excl=None):
     """
-    Generate a validation function for a specified synthetic_data type with optional bounds checks,
+    Generate a validation function for a specified data type with optional bounds checks,
     supporting both inclusive and exclusive ranges.
     """
     def validate_number(value):
@@ -537,7 +537,7 @@ def read_json(filepath: str) -> dict:
 
 
 def write_json(filepath: str, data: dict) -> None:
-    """Write dictionary synthetic_data as JSON to the specified file path."""
+    """Write dictionary data as JSON to the specified file path."""
     with open(filepath, "w") as file:
         json.dump(data, file, indent=4)
 
@@ -552,7 +552,7 @@ def read_bz2_file(filepath, default_value=None) -> dict:
 
 
 def write_bz2_file(filepath, data: dict):
-    """Write dictionary synthetic_data as compressed JSON to the specified file path."""
+    """Write dictionary data as compressed JSON to the specified file path."""
     with bz2.BZ2File(filepath, 'w') as bz2_file:
         bz2_file.write(bytes(json.dumps(data, indent=4), encoding='latin1'))
 

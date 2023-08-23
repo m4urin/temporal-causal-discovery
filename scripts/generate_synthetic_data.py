@@ -30,7 +30,7 @@ def construct_temporal_causal_data(num_nodes, max_lags, num_external=0, minimum_
         "Invalid arguments: time_steps, and warmup must be positive integers"
 
     total_nodes = num_nodes + num_external
-    # Generate random synthetic_data
+    # Generate random data
     data = torch.randn((total_nodes, max_lags + warmup + sequence_length + 1), dtype=torch.float32, device=DEVICE)
     std_data = torch.ones_like(data, device=DEVICE)
     std_data[:num_nodes] *= noise_factor
