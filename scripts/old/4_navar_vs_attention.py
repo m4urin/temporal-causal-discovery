@@ -6,7 +6,7 @@ import torch
 from hyperopt import hp
 
 from definitions import RESULTS_DIR
-from src.synthetic_data.generate_toy_data import construct_temporal_causal_data
+from src.data.generate_toy_data import construct_temporal_causal_data
 from src.eval.soft_roc_auc import calculate_AUROC
 from src.experiments.run_experiment import run_experiment
 from tests.old.temporal_causal_model import TemporalCausalModel

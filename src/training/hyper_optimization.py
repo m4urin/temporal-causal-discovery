@@ -7,7 +7,7 @@ from hyperopt import fmin, tpe, Trials, STATUS_OK
 from typing import Any
 
 from definitions import RESULTS_DIR
-from src.synthetic_data.temporal_causal_data import TemporalCausalData
+from src.data.temporal_causal_data import TemporalCausalData
 from src.experiments.train_model import train_model
 from src.models.config import ModelConfig, TrainConfig
 from src.models.config.model_outputs import EvaluationResult

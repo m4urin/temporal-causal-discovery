@@ -4,9 +4,9 @@ import torch
 from tqdm import trange
 
 from definitions import DATA_DIR, DEVICE
-from src.synthetic_data.temporal_causal_data import TemporalCausalData
-from src.synthetic_data.causal_graph import SyntheticTCG
-from src.synthetic_data.timeseries_data import TimeSeriesData
+from src.data.temporal_causal_data import TemporalCausalData
+from src.data.synthetic_temporal_causal_graph import SyntheticTCG
+from src.data.timeseries_data import TimeSeriesData
 
 
 def construct_random(num_nodes: int = 3, sequence_length: int = 500) -> TemporalCausalData:

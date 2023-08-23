@@ -1,7 +1,7 @@
 import torch
 from matplotlib import pyplot as plt
 
-from src.synthetic_data.timeseries_data import cos_sin_features, mackey_glass
+from src.data.timeseries_data import cos_sin_features, mackey_glass
 
 
 

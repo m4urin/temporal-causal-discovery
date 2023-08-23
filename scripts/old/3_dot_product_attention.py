@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from definitions import RESULTS_DIR
-from src.synthetic_data.generate_toy_data import construct_temporal_causal_data
+from src.data.generate_toy_data import construct_temporal_causal_data
 from src.experiments.run_experiment import run_experiment
 from tests.old.temporal_causal_model import TemporalCausalModel
 from src.utils.pytorch import interpolate_array

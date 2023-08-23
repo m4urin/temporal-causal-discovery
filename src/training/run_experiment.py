@@ -4,7 +4,7 @@ import pickle
 from typing import Any
 
 from definitions import RESULTS_DIR
-from src.synthetic_data.temporal_causal_data import TemporalCausalData
+from src.data.temporal_causal_data import TemporalCausalData
 from src.experiments.hyper_optimization import run_hyperopt
 
 
