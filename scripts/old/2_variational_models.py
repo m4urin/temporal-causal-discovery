@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from definitions import RESULTS_DIR
-from src.data.toy_data.toy_data_6_nodes_non_additive import toy_data_6_nodes_non_additive
+from src.synthetic_data.toy_data.toy_data_6_nodes_non_additive import toy_data_6_nodes_non_additive
 from src.experiments.run_experiment import run_experiment
 from tests.old.temporal_causal_model import TemporalCausalModel
 from src.utils.pytorch import interpolate_array
@@ -19,7 +19,7 @@ def run(experiment_name, dataset):
         "n_blocks": 4,
         "n_layers_per_block": 2,
         "dropout": 0.2,
-        "num_variables": dataset.causal_graph.num_nodes,
+        "num_variables": dataset.causal_graph.num_internal_nodes,
         "max_sequence_length": len(dataset.timeseries_data),
         "lambda1": 0.1,
         "beta1": 0.1,

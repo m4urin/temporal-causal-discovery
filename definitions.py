@@ -1,24 +1,20 @@
 import os
-import torch
+from datetime import datetime
+
 
 """ Get the full paths"""
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results')
-SETTINGS_DIR = os.path.join(PROJECT_ROOT, 'settings')
-TEST_DIR = os.path.join(PROJECT_ROOT, 'tests')
-
-""" pytorch """
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 """ GPULab """
 GPULAB_JOB_ID = None
 if 'GPULAB_JOB_ID' in os.environ:
-    GPULAB_JOB_ID = os.environ['GPULAB_JOB_ID'][:6]
-    RESULTS_DIR = os.path.join(os.path.split(PROJECT_ROOT)[0], 'job_results', GPULAB_JOB_ID)
+    folder_name = "{}_{}".format(datetime.now().strftime('%Y-%m-%d_%H:%M:%S'), os.environ['GPULAB_JOB_ID'][:6])
+    RESULTS_DIR = os.path.join(os.path.split(PROJECT_ROOT)[0], 'job_results', folder_name)
 
 if not os.path.exists(RESULTS_DIR):
-    os.makedirs(RESULTS_DIR)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
 
 if __name__ == '__main__':
     print(f'PROJECT_ROOT: {PROJECT_ROOT}')

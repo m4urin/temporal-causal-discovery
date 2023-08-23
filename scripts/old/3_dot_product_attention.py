@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from definitions import RESULTS_DIR
-from src.data.generate_toy_data import construct_temporal_causal_data
+from src.synthetic_data.generate_toy_data import construct_temporal_causal_data
 from src.experiments.run_experiment import run_experiment
 from tests.old.temporal_causal_model import TemporalCausalModel
 from src.utils.pytorch import interpolate_array
@@ -19,13 +19,13 @@ def run(experiment_name, dataset):
         "n_blocks": 4,
         "n_layers_per_block": 2,
         "dropout": 0.2,
-        "num_variables": dataset.causal_graph.num_nodes - dataset.causal_graph.num_external,
+        "num_variables": dataset.causal_graph.num_internal_nodes - dataset.causal_graph.num_external_nodes,
         "max_sequence_length": len(dataset.timeseries_data),
         "lambda1": 0.1,
         "beta1": 0.0,
         "use_attentions": True,
         "use_instantaneous_predictions": False,
-        "num_external_variables": dataset.causal_graph.num_external
+        "num_external_variables": dataset.causal_graph.num_external_nodes
     }
     train_space = {
         'learning_rate': 1e-4,
@@ -53,7 +53,7 @@ def run(experiment_name, dataset):
 
 if __name__ == '__main__':
     path_causal = os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/causal")
-    # path_random = os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/random")
+    # path_random = os.path.join(RESULTS_DIR, "training/3_dot_product_attention/random")
     data_path = os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/causal_data.pt")
     os.makedirs(path_causal, exist_ok=True)
     # os.makedirs(path_random, exist_ok=True)

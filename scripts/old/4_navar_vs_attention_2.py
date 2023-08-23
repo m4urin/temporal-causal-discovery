@@ -6,7 +6,7 @@ import torch
 from hyperopt import hp
 
 from definitions import RESULTS_DIR
-from src.data.generate_toy_data import construct_temporal_causal_data
+from src.synthetic_data.generate_toy_data import construct_temporal_causal_data
 from src.experiments.run_experiment import run_experiment
 from src.experiments.train_model import train_model
 from src.visualisations import plot_multiple_timeseries, plot_heatmap
@@ -41,7 +41,7 @@ def run(experiment_name, data, true_causal_matrix):
 
 if __name__ == '__main__':
     path_causal = os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/causal")
-    # path_random = os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/random")
+    # path_random = os.path.join(RESULTS_DIR, "training/4_navar_vs_attention_2/random")
     data_path = os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/causal_data.pt")
     os.makedirs(path_causal, exist_ok=True)
     # os.makedirs(path_random, exist_ok=True)
