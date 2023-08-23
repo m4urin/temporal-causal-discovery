@@ -7,9 +7,9 @@ from src.eval.soft_roc_auc import roc_auc_score, soft_roc_auc_score
 from src.utils import exponential_scheduler_with_warmup
 
 
-def train_model(model: str, train_data: torch.Tensor, lr: float, epochs: int, weight_decay: float, test_size: float,
-                true_causal_matrix: torch.Tensor = None, disable_tqdm: bool = False, lambda1: float = 0.2,
-                beta: float = 0.2, start_coeff=-3, end_coeff=0, **model_params):
+def train_model(data: torch.Tensor, model: str, lr: float, epochs: int, weight_decay: float, test_size: float,
+                gt: torch.Tensor = None, data_mean: torch.Tensor = None, disable_tqdm: bool = False, lambda1: float = 0.2,
+                beta: float = 0.2, start_coeff=-3, end_coeff=0, name: str = "", **model_params):
     """
     Trains a model.
 
@@ -28,21 +28,21 @@ def train_model(model: str, train_data: torch.Tensor, lr: float, epochs: int, we
     """
 
     if model == 'NAVAR':
-        model = NAVAR(n_variables=train_data.size(1), **model_params)
+        model = NAVAR(n_variables=data.size(1), **model_params)
     elif model == 'TAMCaD':
-        model = TAMCaD(n_variables=train_data.size(1), **model_params)
+        model = TAMCaD(n_variables=data.size(1), **model_params)
     else:
         raise NotImplementedError('Not supported!')
 
     # Move model and data to GPU if available
     if torch.cuda.is_available():
         model = model.cuda()
-        train_data = train_data.cuda()
-        if true_causal_matrix is not None:
-            true_causal_matrix = true_causal_matrix.cuda()
+        data = data.cuda()
+        if gt is not None:
+            gt = gt.cuda()
 
     # Split data into training and testing sets
-    x_test, y_test, gt_test, x_train, y_train, gt_train = split_data(train_data, true_causal_matrix, test_size)
+    x_test, y_test, gt_test, x_train, y_train, gt_train = split_data(data, gt, test_size)
 
     # Optimizers
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)

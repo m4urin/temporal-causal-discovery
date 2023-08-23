@@ -1,19 +1,14 @@
 import os
-
 import numpy as np
+import pandas as pd
 import torch
-from matplotlib import pyplot as plt
-import pprint
 
 from definitions import RESULTS_DIR
-from src.data.generate_toy_data import construct_temporal_causal_data
-from src.data.temporal_causal_data import TemporalCausalData
-from src.experiments.train_model import train_model
-from src.utils import tensor_dict_to_str, smooth_line
-from src.visualisations import plot_heatmap
+from src.training.train_model import train_model
+from src.utils import load_synthetic_data, ConsoleProgressBar
 
 
-def run(causal_data: TemporalCausalData, model_name, weight_sharing, recurrent):
+def run_experiment(dataset, model_name, weight_sharing, recurrent):
     model_space = {
         "model": model_name,
         "hidden_dim": 64,
@@ -29,7 +24,7 @@ def run(causal_data: TemporalCausalData, model_name, weight_sharing, recurrent):
     }
     train_space = {
         'lr': 2e-5,
-        'epochs': 7000,
+        'epochs': 100,
         'weight_decay': 1e-6,
         'test_size': 0.2,
         "lambda1": 0.0,
@@ -37,57 +32,69 @@ def run(causal_data: TemporalCausalData, model_name, weight_sharing, recurrent):
         "start_coeff": -3,
         "end_coeff": 0,
     }
-    train_data = causal_data.timeseries_data.train_data
-    true_causal_matrix = causal_data.causal_graph.get_causal_matrix(exclude_max_lags=True,
-                                                                    exclude_external_incoming=True,
-                                                                    exclude_external_outgoing=True)
-    true_causal_matrix = true_causal_matrix[None, :, :, None].expand(-1, -1, -1, train_data.size(-1))
-    train_data = causal_data.timeseries_data.train_data
+    unsqueezed = {k: v.squeeze(0) if isinstance(v, torch.Tensor) else v for k, v in dataset.items()}
+    return train_model(**unsqueezed, **train_space, **model_space, disable_tqdm=True)
 
-    result = train_model(train_data=train_data, true_causal_matrix=true_causal_matrix, **train_space, **model_space)
-    return result, train_space['epochs']
+
+def main():
+    data_name = 'synthetic_N-5_T-500_K-6'
+    results_path = os.path.join(RESULTS_DIR, "experiments", "complexity", data_name)
+    os.makedirs(results_path, exist_ok=True)
+
+    dataset = load_synthetic_data(data_name)
+
+    model_configs = [
+        ('NAVAR', False, False),
+        ('NAVAR', True, False),
+        ('NAVAR', False, True),
+        ('NAVAR', True, True),
+        ('TAMCaD', False, False),
+        ('TAMCaD', True, False),
+        ('TAMCaD', False, True),
+        ('TAMCaD', True, True),
+    ]
+    max_evals = 3
+
+    results_list = []
+
+    pbar = ConsoleProgressBar(
+        total=max_evals * len(model_configs),
+        display_interval=max_evals)
+
+    for model_name, weight_sharing, recurrent in model_configs:
+        aucs_best = []
+        aucs_last = []
+        test_losses = []
+        n_params = None
+
+        for _ in range(max_evals):
+            result = run_experiment(dataset, model_name, weight_sharing, recurrent)
+
+            test_phase_auc = result['test_phase']['auc']
+            aucs_best.append(max(test_phase_auc))
+            aucs_last.append(max(test_phase_auc[-10:]))
+            test_losses.append(min(result['test_phase']['loss'][-10:]))
+            n_params = result['model'].n_params
+            pbar.update()
+
+        results_list.append({
+            'Model': model_name,
+            'Weight Sharing': weight_sharing,
+            'Recurrent': recurrent,
+            'AUC (best)': np.mean(aucs_best),
+            'AUC (final)': np.mean(aucs_last),
+            'Loss (final)': np.mean(test_losses),
+            'AUC (best) StdDev': np.std(aucs_best) if len(aucs_best) > 2 else None,
+            'AUC (final) StdDev': np.std(aucs_last) if len(aucs_last) > 2 else None,
+            'Loss (final) StdDev': np.std(test_losses) if len(test_losses) > 2 else None,
+            'Params': n_params
+        })
+
+    df = pd.DataFrame(results_list)
+    csv_file_path = os.path.join(results_path, "results.csv")
+    df.to_csv(csv_file_path, index=False)
+    print(df)
 
 
 if __name__ == '__main__':
-    path_causal = os.path.join(RESULTS_DIR, "training/experiment_complexity/causal")
-    data_path = os.path.join(RESULTS_DIR, "training/experiment_complexity/causal_data.pt")
-    os.makedirs(path_causal, exist_ok=True)
-    # os.makedirs(path_random, exist_ok=True)
-
-    if not os.path.exists(data_path):
-        causal_data = construct_temporal_causal_data(num_nodes=5, max_lags=30, sequence_length=1252,
-                                                     num_external=1, external_connections=1)
-        causal_data.plot('Causal data', view=True,
-                         folder_path=os.path.join(RESULTS_DIR, "training/experiment_complexity"))
-        torch.save(causal_data, data_path)
-    else:
-        causal_data = torch.load(data_path)
-        causal_data.plot('Causal data', view=False,
-                         folder_path=os.path.join(RESULTS_DIR, "training/experiment_complexity"))
-
-    gt = causal_data.causal_graph.get_causal_matrix(exclude_max_lags=True, exclude_external_incoming=True)
-
-    epochs = None
-    all_aucs = []
-
-    for model_name in ['NAVAR', 'TAMCaD']:
-        for weight_sharing in [False, True]:
-            for recurrent in [False, True]:
-                aucs_best = []
-                aucs_last = []
-                test_losses = []
-                n_params = None
-                for i in range(4):
-                    result, epochs = run(causal_data, model_name, weight_sharing, recurrent)  # length=4
-
-                    aucs_best.append(max(result['test_phase']['auc']))
-                    aucs_last.append(max(result['test_phase']['auc'][-10:]))
-                    test_losses.append(min(result['test_phase']['loss'][-10:]))
-                    all_aucs.append(result['test_phase']['auc'])
-                    n_params = result['model'].n_params
-
-                print(model_name, ', weight_sharing:', weight_sharing, ', recurrent:', recurrent, ', n_params:', n_params)
-                print('\tAUC (best)', round(np.mean(aucs_best), 2), '±', round(np.std(aucs_best), 2) if len(aucs_best) > 2 else '_')
-                print('\tAUC (final)', round(np.mean(aucs_last), 2), '±', round(np.std(aucs_last), 2) if len(aucs_last) > 2 else '_')
-                print('\tLoss (final)', round(np.mean(test_losses), 2), '±', round(np.std(test_losses), 2) if len(test_losses) > 2 else '_')
-
+    main()
