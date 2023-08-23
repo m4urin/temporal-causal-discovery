@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from src.models.model_outputs import ModelOutput
+from src.models.config.model_outputs import ModelOutput
 from src.models.modules.interpret.interpret_module import InterpretModule
 from src.models.modules.temporal.temporal_variational_layer import TemporalVariationalLayer
 

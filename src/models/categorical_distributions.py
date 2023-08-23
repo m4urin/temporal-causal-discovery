@@ -20,6 +20,8 @@ def get_softmax_method(name: str):
         return NormalizedSigmoid(dim=-1)
     elif name == 'gumbel-softmax':
         return GumbelSoftmax(dim=-1)
+    elif name == 'gumbel-softmax-1':
+        return GumbelSoftmax_1(dim=-1)
     elif name == 'sparsemax':
         return SparseMax(dim=-1)
     else:
@@ -79,6 +81,36 @@ class Softmax_1(nn.Module):
         maxes = torch.max(x, dim=self.dim, keepdim=True)[0]
         x_exp = torch.exp(x - maxes)
         return x_exp / (torch.exp(-maxes) + torch.sum(x_exp, dim=self.dim, keepdim=True))
+
+
+class GumbelSoftmax_1(nn.Module):
+    def __init__(self, tau: float = 1, dim=-1):
+        """
+        Initializes a Gumbel Softmax module.
+
+        Args:
+            tau (float): The temperature parameter for controlling the relaxation during sampling.
+            dim (int): The dimension along which the softmax is applied.
+        """
+        super().__init__()
+        self.dim = dim
+        self.tau_inverse = 1.0 / tau
+        self.softmax1 = Softmax_1(dim=dim)
+
+    def forward(self, x):
+        """
+        Forward pass of the Gumbel Softmax module. The sampling is only applied during training.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after applying Gumbel Softmax.
+        """
+        if self.training:
+            # Gumbel-softmax sampling: add Gumbel noise to the input and then apply softmax
+            x = x - torch.empty_like(x).exponential_().log()
+        return self.softmax1(self.tau_inverse * x)
 
 
 class NormalizedSigmoid(nn.Module):

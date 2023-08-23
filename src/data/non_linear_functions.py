@@ -4,10 +4,11 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch import nn
+from torch.optim import AdamW
 from tqdm import trange
 
-from src.utils.pytorch import fit_regression, find_extrema, fit_regression_model
-from src.utils.visualisations import plot_mesh, plot_3d_points
+from src.utils import exponential_scheduler_with_warmup
+from src.visualisations import plot_mesh, plot_3d_points
 
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 warnings.filterwarnings("ignore", category=UserWarning, message=r'.*scheduler\.step\(\).*')
@@ -215,16 +216,178 @@ def test_models():
     adj_matrix[2, 1, 3] = 1
     adj_matrix = adj_matrix.bool()
 
-    model, additive, score = get_non_linear_functions(adj_matrix, best_of=3, n_points=30, epochs=1500)
+    model, additive, score = get_non_linear_functions(adj_matrix, best_of=3, n_points=20, epochs=2000)
 
     _, _, mesh_data_coupled, points_3d = model.get_mesh_data(precision=30)
     mesh_data_additive = additive.get_mesh_data(precision=30)
 
     for i in range(len(adj_matrix)):
-        ax = plot_mesh(*mesh_data_coupled[i], cmap='viridis')
-        ax = plot_mesh(*mesh_data_additive[i], ax=ax, cmap='winter')
-        ax = plot_3d_points(*points_3d[i], ax=ax)
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax = plot_mesh(*mesh_data_coupled[i], ax=ax, cmap='twilight', label='Coupled Model',
+                       label_color=np.array([[187.0, 132, 149, 256]])/256)
+        ax = plot_mesh(*mesh_data_additive[i], ax=ax, cmap='winter', label='Additive Model',
+                       label_color=np.array([[7.0, 148, 168, 256]])/256)
+        x1, x2, y = points_3d[i]
+        ax = plot_3d_points(x1, x2, y + 0.02, ax=ax, label='Random generation data')
+
+        plt.legend()
+        ax.view_init(azim=60, elev=20)
+
+        fig.savefig(f'C:/Users/mauri/Desktop/thesis_img/non-linear/relationship_{i}.svg', format='svg', dpi=500)
         plt.show()
+
+
+def find_minimum(model, input_size, output_size, k=1000, lr=1e-2, epochs=400,
+                 min_input_val=None, max_input_val=None, show_loss=False, pbar=None, find_maximum=False):
+    assert len(input_size) > 0
+
+    obj = -1 if find_maximum else 1
+
+    clamped = min_input_val is not None or max_input_val is not None
+
+    model.eval()  # switch model to evaluation mode
+
+    # Track the best minimum and maximum
+    best_minimum = torch.full((k, *output_size), torch.inf, device=DEVICE)
+
+    losses = []
+
+    # Initialize a random point in the input space
+    x = torch.autograd.Variable(torch.randn(k, *input_size).to(DEVICE), requires_grad=True)
+
+    # Minimize the output with gradient descent
+    optimizer = torch.optim.Adam([x], lr=lr)
+    lr_scheduler = exponential_scheduler_with_warmup(
+        optimizer=optimizer,
+        start_factor=0.1,
+        end_factor=0.01,
+        warmup_ratio=0.05,
+        cooldown_ratio=0.5,
+        total_iters=epochs)
+
+    if pbar is None:
+        pbar = trange(epochs, desc="Find min/max..")
+    for epoch in range(epochs):
+        optimizer.zero_grad()
+        z = x
+        if clamped:
+            z = z.clamp(min=min_input_val, max=max_input_val)
+        y = obj * model(z)
+        loss = y.mean()
+        loss.backward()
+        optimizer.step()
+        lr_scheduler.step()
+        best_minimum = torch.minimum(best_minimum, y.detach().view(k, *output_size, -1).mean(dim=-1))
+        losses.append(loss.item())
+
+        if epoch % 10 == 0 or epoch == epochs - 1:
+            pbar.set_description(desc=f"Find min/max.. Loss={round(loss.item(), 4)}")
+        pbar.update()
+
+    if show_loss:
+        plt.clf()
+        plt.plot(losses, label='Train loss')
+        plt.legend()
+        plt.show()
+
+    return obj * best_minimum.min(dim=0, keepdim=True).values
+
+
+def find_extrema(model, input_size, output_size, k=1000, lr=1e-2, epochs=800,
+                 min_input_val=None, max_input_val=None, show_loss=False, pbar=None):
+    min_v = find_minimum(model, input_size, output_size, k, lr, epochs // 2,
+                         min_input_val, max_input_val, show_loss, pbar,
+                         find_maximum=False)
+    max_v = find_minimum(model, input_size, output_size, k, lr, epochs - (epochs // 2),
+                         min_input_val, max_input_val, show_loss, pbar,
+                         find_maximum=True)
+    return min_v, max_v
+
+
+def fit_regression(model: nn.Module, x: torch.Tensor, y: torch.Tensor, epochs=2000, lr=1e-2,
+                   weight_decay=1e-6, show_loss=False, pbar=None):
+    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    lr_scheduler = exponential_scheduler_with_warmup(
+        optimizer=optimizer,
+        start_factor=0.1,
+        end_factor=0.01,
+        warmup_ratio=0.05,
+        cooldown_ratio=0.5,
+        total_iters=epochs)
+
+    loss_fn = nn.MSELoss()
+    losses = []
+
+    if pbar is None:
+        pbar = trange(epochs, desc='Training..')
+
+    for epoch in range(epochs):
+        # Zero the gradients
+        optimizer.zero_grad()
+        y_pred = model(x)
+        loss = loss_fn(y_pred, y)
+        loss.backward()
+        optimizer.step()
+        lr_scheduler.step()
+        losses.append(loss.item())
+
+        # Print loss for tracking progress
+        if epoch % 10 == 0 or epoch == epochs - 1:
+            pbar.set_description(desc=f"Training.. Loss={round(loss.item(), 4)}")
+        pbar.update()
+
+    if show_loss:
+        plt.clf()
+        plt.plot(losses, label='Train loss')
+        plt.legend()
+        plt.show()
+
+    return min(losses)
+
+
+def fit_regression_model(model: nn.Module, model_original: nn.Module, data_size, epochs=2000, lr=1e-2,
+                         weight_decay=1e-6, show_loss=False, pbar=None):
+    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    lr_scheduler = exponential_scheduler_with_warmup(
+        optimizer=optimizer,
+        start_factor=0.1,
+        end_factor=0.01,
+        warmup_ratio=0.05,
+        cooldown_ratio=0.5,
+        total_iters=epochs)
+
+    loss_fn = nn.MSELoss()
+    losses = []
+
+    if pbar is None:
+        pbar = trange(epochs, desc='Training..')
+
+    for epoch in range(epochs):
+        # Zero the gradients
+        optimizer.zero_grad()
+        x = torch.randn(*data_size, device=DEVICE)
+        with torch.no_grad():
+            y = model_original(x)
+        y_pred = model(x)
+        loss = loss_fn(y_pred, y)
+        loss.backward()
+        optimizer.step()
+        lr_scheduler.step()
+        losses.append(loss.item())
+
+        # Print loss for tracking progress
+        if epoch % 10 == 0 or epoch == epochs - 1:
+            pbar.set_description(desc=f"Training.. Loss={round(loss.item(), 4)}")
+        pbar.update()
+
+    if show_loss:
+        plt.clf()
+        plt.plot(losses, label='Train loss')
+        plt.legend()
+        plt.show()
+
+    return min(losses)
 
 
 if __name__ == '__main__':

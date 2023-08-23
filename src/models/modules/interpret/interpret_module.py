@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from src.models.model_outputs import ModelOutput
+from src.models.config.model_outputs import ModelOutput
 
 
 class InterpretModule(nn.Module):

@@ -9,8 +9,8 @@ from typing import Any
 from definitions import RESULTS_DIR
 from src.data.temporal_causal_data import TemporalCausalData
 from src.experiments.train_model import train_model
-from src.models.model_config import ModelConfig, TrainConfig
-from src.models.model_outputs import EvaluationResult
+from src.models.config import ModelConfig, TrainConfig
+from src.models.config.model_outputs import EvaluationResult
 from src.utils.progress_3 import Nested_trange
 
 

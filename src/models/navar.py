@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from src.models.TCN import TCN
-from src.models.losses import DER_loss, NAVAR_regularization_loss, NLL_loss
+from src.losses import DER_loss, NAVAR_regularization_loss, NLL_loss
 from src.utils import weighted_std, sliding_window_std, weighted_sliding_window_std, count_parameters
 
 
@@ -35,7 +35,7 @@ class NAVAR(nn.Module):
     """
     def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                  dropout=0.0, weight_sharing=False, recurrent=False,
-                 aleatoric=False, epistemic=False, uncertainty_contributions=False):
+                 aleatoric=False, epistemic=False, uncertainty_contributions=False, n_heads=None, softmax_method=None):
         super().__init__()
         if uncertainty_contributions:
             self.navar = NAVAR_Uncertainty(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
@@ -56,7 +56,7 @@ class NAVAR(nn.Module):
     def forward(self, x):
         return self.navar(x)
 
-    def loss_function(self, y_true, **kwargs):
+    def loss_function(self, y_true, coeff, beta, **kwargs):
         return self.navar.loss_function(y_true, **kwargs)
 
     def analysis(self, **kwargs):
@@ -64,7 +64,7 @@ class NAVAR(nn.Module):
         self.eval()
         with torch.no_grad():
             result = self.navar.analysis(**kwargs)
-            result = {k: v.cpu().numpy() for k, v in result.items()}
+            #result = {k: v.cpu().numpy() for k, v in result.items()}
         self.train(mode)
         return result
 

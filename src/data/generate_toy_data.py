@@ -7,7 +7,6 @@ from definitions import DATA_DIR, DEVICE
 from src.data.temporal_causal_data import TemporalCausalData
 from src.data.causal_graph import TemporalCausalGraph
 from src.data.timeseries_data import TimeSeriesData
-from src.utils.pytorch import generate_random_sine_waves
 
 
 def construct_random(num_nodes: int = 3, sequence_length: int = 500) -> TemporalCausalData:
@@ -33,11 +32,6 @@ def construct_temporal_causal_data(num_nodes, max_lags, num_external=0, minimum_
     total_nodes = num_nodes + num_external
     # Generate random data
     data = torch.randn((total_nodes, max_lags + warmup + sequence_length + 1), dtype=torch.float32, device=DEVICE)
-    #std_data = generate_random_sine_waves(
-    #    num_samples=total_nodes,
-    #    num_timesteps=data.size(-1),
-    #    amplitude=(0.01, 0.2 * noise_factor),
-    #    frequency=(0.5, 2.0)) + 0.3 * noise_factor
     std_data = torch.ones_like(data, device=DEVICE)
     std_data[:num_nodes] *= noise_factor
     data[:, max_lags:] *= std_data[:, max_lags:]

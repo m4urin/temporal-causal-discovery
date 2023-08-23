@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 
-from src.models.model_outputs import ModelOutput
-from src.models.modules.interpret.attention_mechanism import AttentionDefault, AttentionInstant
+from src.models.config.model_outputs import ModelOutput
+from src.models.modules.interpret.TAMCaD import AttentionDefault, AttentionInstant
 from src.models.modules.interpret.navar import NavarVarInstant, NavarVar, NavarInstant, NavarDefault
 
 

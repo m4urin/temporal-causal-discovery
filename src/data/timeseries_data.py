@@ -3,7 +3,7 @@ from typing import Union
 import numpy as np
 import torch
 
-from src.utils.visualisations import plot_multiple_timeseries
+from src.visualisations import plot_multiple_timeseries
 
 
 def verify(x: Union[np.ndarray, torch.Tensor], num_dim=None, shape=None):

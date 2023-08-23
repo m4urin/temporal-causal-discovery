@@ -3,14 +3,14 @@ from torch import nn
 
 from src.models.TCN import TCN
 from src.models.categorical_distributions import get_softmax_method
-from src.models.losses import TAMCaD_regularization_loss, DER_loss, NLL_loss
+from src.losses import TAMCaD_regularization_loss, DER_loss, NLL_loss
 from src.utils import count_parameters, weighted_mean
 
 
 class TAMCaD(nn.Module):
     def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block, n_heads,
                  softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False,
-                 aleatoric=False, epistemic=False):
+                 aleatoric=False, epistemic=False, **kwargs):
         super().__init__()
         if epistemic:
             self.tamcad = TAMCaD_Epistemic(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block, n_heads,
@@ -25,6 +25,9 @@ class TAMCaD(nn.Module):
         self.receptive_field = (2 ** n_blocks - 1) * n_layers_per_block * (kernel_size - 1) + 1
         self.n_params = count_parameters(self)
 
+    def forward(self, x):
+        return self.tamcad(x)
+
     def loss_function(self, y_true, **kwargs):
         return self.tamcad.loss_function(y_true, **kwargs)
 
@@ -32,8 +35,8 @@ class TAMCaD(nn.Module):
         mode = self.training
         self.eval()
         with torch.no_grad():
-            result = self.navar.analysis(**kwargs)
-            result = {k: v.cpu().numpy() for k, v in result.items()}
+            result = self.tamcad.analysis(**kwargs)
+            #result = {k: v.cpu().numpy() for k, v in result.items()}
         self.train(mode)
         return result
 
@@ -59,7 +62,10 @@ class TAMCaD_Default(nn.Module):
 
     def forward(self, x):
         prediction, attentions = self.attention_mechanism(x)
-        return prediction, attentions
+        return {
+            'prediction': prediction,
+            'attentions': attentions
+        }
 
     @staticmethod
     def analysis(prediction, attentions):
@@ -74,10 +80,10 @@ class TAMCaD_Default(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, attentions, lambda1=0.2):
+    def loss_function(y_true, prediction, attentions, lambda1=0.2, beta=0.2, coeff=None):
         # Mean squared error loss
         error = nn.functional.mse_loss(prediction, y_true)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
+        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1, beta=beta)
         return error + regularization
 
 
@@ -104,7 +110,11 @@ class TAMCaD_Aleatoric(nn.Module):
         batch_size, n, sequence_length = x.size()
         x, attentions = self.attention_mechanism(x)
         prediction, log_var_aleatoric = x.reshape(batch_size, n, 2, sequence_length).unbind(dim=2)
-        return prediction, attentions, log_var_aleatoric
+        return {
+            'prediction': prediction,
+            'attentions': attentions,
+            'log_var_aleatoric': log_var_aleatoric
+        }
 
     @staticmethod
     def analysis(prediction, attentions, log_var_aleatoric):
@@ -120,9 +130,9 @@ class TAMCaD_Aleatoric(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, attentions, log_var_aleatoric, lambda1=0.2):
+    def loss_function(y_true, prediction, attentions, log_var_aleatoric, lambda1=0.2, beta=0.2, coeff=None):
         aleatoric_loss = NLL_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
+        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1, beta=beta)
         return aleatoric_loss + regularization
 
 
@@ -148,17 +158,23 @@ class TAMCaD_Epistemic(nn.Module):
     def forward(self, x):
         batch_size, _, sequence_length = x.size()
         x, attentions = self.attention_mechanism(x)
-        x = self.prediction(x).reshape(batch_size, self.n, 3, sequence_length)
-        prediction, log_v, log_beta = x.chunk(3, dim=2)
+        n = attentions.size(2)
+        x = x.reshape(batch_size, n, 3, sequence_length)
+        prediction, log_v, log_beta = x.unbind(dim=2)
         log_var_aleatoric = log_beta - log_v
-        return prediction, attentions, log_var_aleatoric, log_v
+        return {
+            'prediction': prediction,
+            'attentions': attentions,
+            'log_var_aleatoric': log_var_aleatoric,
+            'log_v': log_v
+        }
 
     @staticmethod
     def analysis(prediction, attentions, log_var_aleatoric, log_v):
         epistemic = torch.exp(-0.5 * log_v)
 
         # (bs, n, n, sequence_length)
-        temp_confidence_matrix = epistemic.unsqueeze(1).expand(-1, epistemic.size(1), -1, -1)
+        temp_confidence_matrix = epistemic.unsqueeze(2).expand(-1, -1, epistemic.size(1), -1)
 
         temp_causal_matrix, temp_external_causal_matrix = instant_attentions_to_causal_matrix(attentions)
         default_causal_matrix = weighted_mean(temp_causal_matrix, temp_confidence_matrix, dim=-1)  # (bs, n, n)
@@ -177,9 +193,9 @@ class TAMCaD_Epistemic(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, attentions, log_var_aleatoric, log_v, lambda1=0.2, coeff=1e-1):
+    def loss_function(y_true, prediction, attentions, log_var_aleatoric, log_v, lambda1=0.2, beta=0.2, coeff=1e-1):
         epistemic_loss = DER_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric, log_v=log_v, coeff=coeff)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
+        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1, beta=beta)
         return epistemic_loss + regularization
 
 
@@ -188,6 +204,7 @@ class TemporalInstantaneousAttentionMechanism(nn.Module):
                  n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
         self.n_heads = n_heads
+        self.groups = groups
 
         self.softmax_method = get_softmax_method(softmax_method)
 
