@@ -4,6 +4,7 @@
 tests/
 *_ignore.*
 *Digraph.gv.svg
+*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

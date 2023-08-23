@@ -1,20 +1,25 @@
 import argparse
+import bz2
 import json
 import math
 import os
 import pickle
-import bz2
+import random
+import time
 import warnings
+import zipfile
 
 import numpy as np
 import torch
+from collections import defaultdict
+from hyperopt import hp
+from pathlib import Path
 from scipy.ndimage import gaussian_filter1d
 from torch import nn
 from torch.optim import lr_scheduler
-from pathlib import Path
-from collections import defaultdict
-from hyperopt import hp
-import time
+from tqdm import trange
+
+from definitions import DATA_DIR
 
 
 # --------- TCN ---------
@@ -60,20 +65,56 @@ def generate_architecture_options(max_lags, marge, minimum_num_options=1,
     return [{'n_blocks': b, 'n_layers_per_block': l, 'kernel_size': k} for b, l, k in valids]
 
 
+# --------- Datasets ---------
+
+def load_synthetic_data(name: str):
+    """ Load and preprocess synthetic synthetic_data from a zip file. """
+    directory = os.path.join(DATA_DIR, 'synthetic')
+    pt_file = os.path.join(directory, f"{name}.pt")
+
+    if not os.path.exists(pt_file):
+        with zipfile.ZipFile(os.path.join(directory, f"{name}.zip"), 'r') as zip_ref:
+            zip_ref.extractall(directory)
+
+    data = torch.load(pt_file)
+    os.remove(pt_file)
+
+    return preprocess_data(
+        name=name,
+        data=data['synthetic_data'].unsqueeze(0),
+        data_mean=data['data_mean'].unsqueeze(0),
+        gt=data['gt'].unsqueeze(0).float()
+    )
+
+
+def load_causeme_data(name: str):
+    """ Load and preprocess CauseMe synthetic_data from a zip file. """
+    zip_file = os.path.join(DATA_DIR, 'causeme', f"{name}.zip")
+
+    with zipfile.ZipFile(zip_file, 'r') as f:
+        data = np.stack([np.loadtxt(f.open(name)) for name in sorted(f.namelist())])
+
+    data = torch.from_numpy(data).float().transpose(-1, -2).unsqueeze(dim=1)
+    return preprocess_data(name=name, data=data)
+
+
+def preprocess_data(name, data, data_mean=None, gt=None):
+    """ Preprocess synthetic_data by normalizing and optional preprocessing of mean and ground truth. """
+    means = data.mean(dim=-1, keepdim=True)
+    stds = data.std(dim=-1, keepdim=True)
+    data = (data - means) / stds
+    result = {'name': name, 'synthetic_data': data}
+    if data_mean is not None:
+        result['data_mean'] = (data_mean - means) / stds
+    if gt is not None:
+        result['gt'] = gt
+    return result
+
+
 # --------- PyTorch Functions ---------
 
 def count_parameters(model: nn.Module, trainable_only: bool = False) -> int:
-    """
-    Counts the number of parameters in a PyTorch model.
-
-    Args:
-        model: A PyTorch model to count the parameters of.
-        trainable_only: A boolean flag indicating whether to count only trainable parameters.
-            If True, only parameters with requires_grad=True will be counted.
-
-    Returns:
-        An integer representing the total number of parameters in the model.
-    """
+    """ Counts the number of parameters in a PyTorch model. """
     if trainable_only:
         # count only trainable parameters
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -83,10 +124,12 @@ def count_parameters(model: nn.Module, trainable_only: bool = False) -> int:
 
 
 def weighted_mean(x: torch.Tensor, weights: torch.Tensor, dim, keepdim=False):
+    """ Calculate the weighted mean along a specified dimension using given weights. """
     return (weights * x).sum(dim=dim, keepdim=keepdim) / weights.sum(dim=dim, keepdim=keepdim)
 
 
 def weighted_std(x: torch.Tensor, weights: torch.Tensor, dim, keepdim=False):
+    """ Compute the weighted standard deviation along a specified dimension using provided weights and input tensor. """
     total_weight = weights.sum(dim=dim, keepdim=True)
     weighted_mean = (weights * x).sum(dim=dim, keepdim=True) / total_weight
     if not keepdim:
@@ -98,14 +141,7 @@ def weighted_std(x: torch.Tensor, weights: torch.Tensor, dim, keepdim=False):
 def pad(x: torch.Tensor, padding: tuple, dim: int = -1) -> torch.Tensor:
     """
     Pads a given tensor along a specified dimension with the provided padding values.
-
-    Args:
-        x (torch.Tensor): The input tensor to be padded.
-        padding (tuple): A tuple containing the padding values for the left and right sides.
-        dim (int, optional): The dimension along which padding should be applied. Default is -1.
-
-    Returns:
-        torch.Tensor: Padded tensor.
+    Padding is a tuple containing the padding values for the left and right sides.
     """
     num_dims = x.dim()
     pad_sizes = [0] * 2 * num_dims
@@ -217,12 +253,6 @@ def entropy(x: torch.Tensor, dim: int = -1, keepdim: bool = False) -> torch.Tens
             Defaults to -1.
         keepdim (bool, optional): Whether to keep the dimension of the output tensor.
             Defaults to False.
-
-    Returns:
-        torch.Tensor: The entropy tensor.
-
-    Raises:
-        IndexError: If the specified dimension is out of range.
     """
 
     # Compute the negative entropy by multiplying the input tensor with its logarithm
@@ -265,9 +295,15 @@ def exponential_scheduler_with_warmup(total_iters, optimizer, start_factor=1.0, 
                                      milestones=[warmup_iters - 1, total_iters - cooldown_iters])
 
 
+def get_model_device(model: nn.Module):
+    """ Obtains the device of the model. """
+    return next(model.parameters()).device
+
+
 # --------- Numpy ---------
 
 def smooth_line(x: np.ndarray, sigma=4.0, axis=-1, reduce_size: int = None):
+    """ Smooth a one-dimensional array using Gaussian filtering with optional dimension reduction. """
     smooth_x = gaussian_filter1d(x, sigma=sigma, axis=axis)
     if reduce_size:
         assert 0 < reduce_size <= x.shape[axis], \
@@ -279,34 +315,21 @@ def smooth_line(x: np.ndarray, sigma=4.0, axis=-1, reduce_size: int = None):
 
 # --------- Pretty Printing Functions ---------
 
-def pretty_number(n, d):
-    """
-    Convert a number to a readable format with the specified number of significant digits.
-
-    Parameters:
-    - n (float or int): The number to be formatted.
-    - d (int): The number of significant digits desired in the output.
-
-    Returns:
-    - str: Formatted string representation of the number.
-
-    Raises:
-    - ValueError: If d is less than or equal to 0.
-    """
-
+def pretty_number(a_number, significant_digits):
+    """ Convert a number to a readable format with the specified number of significant digits. """
     # Validate the input for number of significant digits
-    if d <= 0:
+    if significant_digits <= 0:
         raise ValueError("Number of significant digits (d) should be greater than 0.")
 
     # If the number is 0, return "0" as output
-    abs_n = abs(n)
+    abs_n = abs(a_number)
     if abs_n == 0:
         return "0"
 
     # If the number is very small or very large, format it using scientific notation
     elif abs_n < 0.001 or abs_n >= 1e7:
-        format_str = "{:." + str(d - 1) + "e}"
-        return format_str.format(n)
+        format_str = "{:." + str(significant_digits - 1) + "e}"
+        return format_str.format(a_number)
 
     # For medium-sized numbers, format with fixed decimal places
     else:
@@ -314,11 +337,11 @@ def pretty_number(n, d):
         int_digits = len(str(int(abs_n)))
 
         # Calculate how many digits should be after the decimal point
-        decimal_digits = max(0, d - int_digits)
+        decimal_digits = max(0, significant_digits - int_digits)
 
         # Construct the format string and return the formatted value
         format_str = "{:." + str(decimal_digits) + "f}"
-        return format_str.format(n)
+        return format_str.format(a_number)
 
 
 def tensor_dict_to_str(obj):
@@ -342,6 +365,10 @@ def tensor_dict_to_str(obj):
 # --------- Argparse functions ---------
 
 def valid_number(data_type, min_incl=None, min_excl=None, max_incl=None, max_excl=None):
+    """
+    Generate a validation function for a specified synthetic_data type with optional bounds checks,
+    supporting both inclusive and exclusive ranges.
+    """
     def validate_number(value):
         # Convert value based on data_type
         try:
@@ -385,6 +412,10 @@ def valid_number(data_type, min_incl=None, min_excl=None, max_incl=None, max_exc
 # --------- Hyperopt ---------
 
 def loguniform_10(label, a, b):
+    """
+    A loguniform distribution with base 10 for use in hyperparameter
+    optimization, bounded between 10^a and 10^b.
+    """
     return hp.loguniform(label, math.log(10 ** a), math.log(10 ** b))
 
 
@@ -392,7 +423,6 @@ def loguniform_10(label, a, b):
 
 def merge_dictionaries(dictionaries):
     """Merge a list of dictionaries by appending values to common keys."""
-
     merged = defaultdict(list)
 
     for dictionary in dictionaries:
@@ -402,7 +432,51 @@ def merge_dictionaries(dictionaries):
     return dict(merged)
 
 
+def measure_function_times(functions, input_args, num_iterations, num_trials, num_cache_trials=2, function_names=None,
+                           show_progress=True):
+    """
+    Measure the execution time of a set of functions over multiple trials and iterations,
+    providing mean time in milliseconds per iteration. Supports caching and shuffling of function order.
+    """
+    if function_names is None:
+        function_names = [f"Function {i}" for i in range(len(functions))]
+
+    max_name_length = max(len(name) for name in function_names)
+    padded_function_names = [name.ljust(max_name_length) for name in function_names]
+
+    time_records = np.zeros((len(functions), num_trials))
+    indexed_functions = list(enumerate(functions))
+
+    progress_bar = trange(num_cache_trials + num_trials, disable=not show_progress)
+
+    for _ in range(num_cache_trials):
+        for _, func in indexed_functions:
+            for _ in range(num_iterations):
+                func(*input_args)
+        np.random.shuffle(indexed_functions)
+        progress_bar.update()
+
+    for i_trial in range(num_trials):
+        for i, func in indexed_functions:
+            t0 = time.time()
+            for _ in range(num_iterations):
+                func(*input_args)
+            t1 = time.time()
+            time_records[i, i_trial] = t1 - t0
+        np.random.shuffle(indexed_functions)
+        progress_bar.update()
+    progress_bar.close()
+
+    for name, times in zip(padded_function_names, time_records * 1000 / num_iterations):
+        mean_time = np.mean(times)
+        print(f"{name}: {mean_time:.2e} ms/it")
+
+
 class ConsoleProgressBar:
+    """
+    Create a console-based progress bar for tracking the advancement of a process.
+    Displays progress percentage, elapsed and estimated time, along with an optional description.
+    """
     def __init__(self, total, display_interval=1):
         self.total = total
         self.current = 0
@@ -447,13 +521,7 @@ class ConsoleProgressBar:
 # --------- IO Functions ---------
 
 def create_absolute_path(*components, create_directories: bool = True) -> str:
-    """
-    Creates an absolute path using pathlib and optionally creates missing directories.
-
-    :param components: Components of the path to be joined.
-    :param create_directories: If True, missing directories along the path will be created.
-    :return: The created absolute path.
-    """
+    """ Creates an absolute path using pathlib and optionally creates missing directories. """
     absolute_path = Path(*components).resolve()
 
     if create_directories and not absolute_path.is_file():
@@ -469,7 +537,7 @@ def read_json(filepath: str) -> dict:
 
 
 def write_json(filepath: str, data: dict) -> None:
-    """Write dictionary data as JSON to the specified file path."""
+    """Write dictionary synthetic_data as JSON to the specified file path."""
     with open(filepath, "w") as file:
         json.dump(data, file, indent=4)
 
@@ -484,51 +552,25 @@ def read_bz2_file(filepath, default_value=None) -> dict:
 
 
 def write_bz2_file(filepath, data: dict):
-    """Write dictionary data as compressed JSON to the specified file path."""
+    """Write dictionary synthetic_data as compressed JSON to the specified file path."""
     with bz2.BZ2File(filepath, 'w') as bz2_file:
         bz2_file.write(bytes(json.dumps(data, indent=4), encoding='latin1'))
 
 
 def write_module(module, filepath):
-    """
-    Write a PyTorch nn.Module to a file.
-
-    Arguments:
-    module -- The nn.Module object to be saved.
-    filepath -- The path of the file to save the module to.
-    """
+    """ Write a PyTorch nn.Module to a file.  """
     torch.save(module.state_dict(), filepath)
 
 
 def read_module(module_class, filepath):
-    """
-    Read a PyTorch nn.Module from a file.
-
-    Arguments:
-    module_class -- The class of the nn.Module to be loaded.
-    filepath -- The path of the file to load the module from.
-
-    Returns:
-    module -- The loaded nn.Module object.
-    """
+    """ Read a PyTorch nn.Module from a file. """
     module = module_class()
     module.load_state_dict(torch.load(filepath))
     return module
 
 
 def read_pickled_object(filepath: str, default_value=None):
-    """
-    Reads a pickled object from a file and returns it.
-
-    Args:
-        filepath: A string representing the path to the pickled file.
-        default_value: A default value to return if the file doesn't exist.
-
-    Returns:
-        The loaded object from the pickled file.
-        If the file doesn't exist and a default value is provided, the default value is returned.
-        If the file doesn't exist and no default value is provided, None is returned.
-    """
+    """ Reads a pickled object from a file and returns it. """
     if os.path.exists(filepath):
         with open(filepath, "rb") as pickle_file:
             obj = pickle.load(pickle_file)
@@ -537,12 +579,6 @@ def read_pickled_object(filepath: str, default_value=None):
 
 
 def write_object_pickled(filepath: str, data):
-    """
-    Writes an object to a file in pickled format.
-
-    Args:
-        filepath: A string representing the path to the pickled file to write.
-        data: An object to write to the file.
-    """
+    """ Writes an object to a file in pickled format. """
     with open(filepath, "wb") as pickle_file:
         pickle.dump(data, pickle_file)

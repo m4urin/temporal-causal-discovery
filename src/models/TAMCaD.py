@@ -2,8 +2,8 @@ import torch
 from torch import nn
 
 from src.models.TCN import TCN
-from src.models.categorical_distributions import get_softmax_method
-from src.losses import TAMCaD_regularization_loss, DER_loss, NLL_loss
+from src.models.attention_scoring_functions import get_softmax_method
+from src.models.losses import TAMCaD_regularization_loss, DER_loss, NLL_loss
 from src.utils import count_parameters, weighted_mean
 
 
@@ -48,7 +48,7 @@ class TAMCaD_Default(nn.Module):
         self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
             in_channels=n_variables,
             out_channels=n_variables,
-            hidden_dim=hidden_dim,
+            hidden_dim=n_variables * hidden_dim,
             groups=n_variables,
             kernel_size=kernel_size,
             n_blocks=n_blocks,
@@ -94,7 +94,7 @@ class TAMCaD_Aleatoric(nn.Module):
         self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
             in_channels=n_variables,
             out_channels=2 * n_variables,
-            hidden_dim=hidden_dim,
+            hidden_dim=n_variables * hidden_dim,
             groups=n_variables,
             kernel_size=kernel_size,
             n_blocks=n_blocks,
@@ -143,7 +143,7 @@ class TAMCaD_Epistemic(nn.Module):
         self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
             in_channels=n_variables,
             out_channels=3 * n_variables,
-            hidden_dim=hidden_dim,
+            hidden_dim=n_variables * hidden_dim,
             groups=n_variables,
             kernel_size=kernel_size,
             n_blocks=n_blocks,
