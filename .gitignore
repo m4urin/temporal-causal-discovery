@@ -1,8 +1,9 @@
 # project files
 .idea/
-test/
-results/
-test0.py
+#results/
+tests/
+*_ignore.*
+*Digraph.gv.svg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
