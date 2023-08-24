@@ -1,4 +1,5 @@
 import argparse
+from pprint import pprint
 
 from hyperopt import hp
 
@@ -129,7 +130,7 @@ def get_param_space():
         k_ = a['kernel_size']
         print(a, "receptive_field:", receptive_field(b_, n_, k_))
 
-    if args.hyperopt:
+    if args.hyperopt and len(architecture_options) > 1:
         param_space['architecture'] = hp.choice('architecture', architecture_options)
     else:
         param_space['architecture'] = architecture_options[0]
@@ -160,4 +161,7 @@ def get_param_space():
 
 
 if __name__ == "__main__":
-    run(**get_param_space())
+    space = get_param_space()
+    print('Parsed input:')
+    pprint(space)
+    run(**space)

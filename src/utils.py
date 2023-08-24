@@ -36,7 +36,7 @@ def generate_architecture_options(max_lags, marge, minimum_num_options=1,
 
     if n_blocks and n_layers_per_block and kernel_size:
         assert n_blocks >= 1 and n_layers_per_block >= 1 and kernel_size >= 2
-        return [(n_blocks, n_layers_per_block, kernel_size)]
+        return [{'n_blocks': n_blocks, 'n_layers_per_block': n_layers_per_block, 'kernel_size': kernel_size}]
 
     assert max_lags is not None and max_lags >= 2, \
         'if --n_block, --n_layers_per_block, and --kernel_size are not/partially provided, ' \
