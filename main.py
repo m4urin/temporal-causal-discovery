@@ -1,9 +1,7 @@
 import argparse
-from time import sleep
 
 from hyperopt import hp
 
-from config import RESULTS_DIR
 from src.run import run
 from src.utils import hp_pow, generate_architecture_options, valid_number, hp_loguniform_10, receptive_field
 
@@ -162,8 +160,4 @@ def get_param_space():
 
 
 if __name__ == "__main__":
-    print('test')
-    sleep(1000)
-    #    sys.stdout = open(os.path.join(RESULTS_DIR, 'console.log'), 'w')
-    #space =
-    #run(**get_param_space())
+    run(**get_param_space())
