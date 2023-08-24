@@ -3,7 +3,7 @@ import torch
 import torch.optim as optim
 from tqdm import trange
 from scripts.old.experiments.EDL_losses.losses import EvidentialRegression
-from src.models.NAVAR.navar_epistemic import NAVAR_TCN_EPISTEMIC
+from src.models.navar.navar_epistemic import NAVAR_TCN_EPISTEMIC
 from src.utils.pytorch import count_parameters
 
 

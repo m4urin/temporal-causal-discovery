@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from src.models.TCN import TCN
+from src.models.tcn import TCN
 from src.models.attention_scoring_functions import get_softmax_method
 from src.models.losses import TAMCaD_regularization_loss, DER_loss, NLL_loss
 from src.utils import count_parameters, weighted_mean

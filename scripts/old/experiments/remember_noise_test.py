@@ -5,7 +5,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from tqdm import trange
 
-from src.models.NAVAR.navar_tcn import NAVAR_TCN
+from src.models.navar.navar_tcn import NAVAR_TCN
 from src.utils.pytorch import count_parameters
 
 

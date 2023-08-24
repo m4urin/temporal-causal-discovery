@@ -1,7 +1,7 @@
 import torch
 from torch.optim import AdamW
 from tqdm import trange
-from src.models.NAVAR import NAVAR
+from src.models.navar import NAVAR
 from src.models.TAMCaD import TAMCaD
 from src.eval.soft_roc_auc import roc_auc_score, soft_roc_auc_score
 from src.utils import exponential_scheduler_with_warmup

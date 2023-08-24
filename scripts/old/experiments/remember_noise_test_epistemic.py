@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 from seaborn import heatmap
 from tqdm import trange
 
-from src.models.NAVAR.navar_epistemic import NAVAR_TCN_E, loss_navar_e
+from src.models.navar.navar_epistemic import NAVAR_TCN_E, loss_navar_e
 from src.utils.pytorch import count_parameters
 
 

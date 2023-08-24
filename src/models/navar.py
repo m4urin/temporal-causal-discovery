@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from src.models.TCN import TCN
+from src.models.tcn import TCN
 from src.models.losses import DER_loss, NAVAR_regularization_loss, NLL_loss
 from src.utils import weighted_std, sliding_window_std, weighted_sliding_window_std, count_parameters
 
