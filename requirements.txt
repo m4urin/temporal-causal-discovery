@@ -9,9 +9,5 @@ seaborn
 pandas
 tqdm
 hyperopt
-networkx
 scikit-learn
-enlighten
-rich
 torcheval
-lingam
