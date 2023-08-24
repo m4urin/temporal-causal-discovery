@@ -1,8 +1,10 @@
 import os
-import sys
 
-if 'GPULAB_JOB_ID' in os.environ:
-    sys.path.append('/project_antwerp/temporal-causal-discovery/')
+from config import RESULTS_DIR
+
+#if 'GPULAB_JOB_ID' in os.environ:
+#    import sys
+#    sys.stdout = open(os.path.join(RESULTS_DIR, 'console.log'), 'w')
 
 import argparse
 

@@ -15,9 +15,6 @@ if 'GPULAB_JOB_ID' in os.environ:
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-if 'GPULAB_JOB_ID' in os.environ:
-    import sys
-    sys.stdout = open(os.path.join(RESULTS_DIR, 'console.log'), 'w')
 
 if __name__ == '__main__':
     print(f'PROJECT_ROOT: {PROJECT_ROOT}')
