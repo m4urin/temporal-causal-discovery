@@ -1,5 +1,3 @@
-import os
-import sys
 import argparse
 from time import sleep
 
@@ -164,10 +162,8 @@ def get_param_space():
 
 
 if __name__ == "__main__":
-    if 'GPULAB_JOB_ID' in os.environ:
-        with open(os.path.join(RESULTS_DIR, 'console.log'), 'w') as sys.stdout:
-            print('test')
-            sleep(1000)
+    print('test')
+    sleep(1000)
     #    sys.stdout = open(os.path.join(RESULTS_DIR, 'console.log'), 'w')
     #space =
     #run(**get_param_space())
