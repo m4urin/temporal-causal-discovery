@@ -11,6 +11,8 @@ GPULAB_JOB_ID = None
 if 'GPULAB_JOB_ID' in os.environ:
     folder_name = "{}_{}".format(datetime.now().strftime('%Y%m%d_%H%M'), os.environ['GPULAB_JOB_ID'][:6])
     RESULTS_DIR = os.path.join(os.path.split(PROJECT_ROOT)[0], 'outputs', folder_name)
+    import sys
+    sys.stdout = open(os.path.join(RESULTS_DIR, '.log'), 'w')
 
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR, exist_ok=True)
