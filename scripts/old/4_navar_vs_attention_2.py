@@ -3,13 +3,11 @@ from time import sleep
 
 import numpy as np
 import torch
-from hyperopt import hp
 
-from definitions import RESULTS_DIR
+from config import RESULTS_DIR
 from src.data.generate_toy_data import construct_temporal_causal_data
-from src.experiments.run_experiment import run_experiment
 from src.experiments.train_model import train_model
-from src.visualisations import plot_multiple_timeseries, plot_heatmap
+from src.data.visualisations import plot_multiple_timeseries, plot_heatmap
 
 
 def run(experiment_name, data, true_causal_matrix):

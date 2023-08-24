@@ -1,0 +1,2 @@
+
+TAMCaD --n_heads 4 --softmax_method gumbel-softmax --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 10 --subset_evals 1 --aleatoric --n_blocks 1 --max_lags 6

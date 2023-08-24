@@ -1,85 +1,94 @@
-import copy
-import os
-
 import numpy as np
 from hyperopt import fmin, tpe, Trials, STATUS_OK
-
-from typing import Any
-
-from definitions import RESULTS_DIR
-from src.data.temporal_causal_data import TemporalCausalData
-from src.experiments.train_model import train_model
-from src.models.config import ModelConfig, TrainConfig
-from src.models.config.model_outputs import EvaluationResult
-from src.utils.progress_3 import Nested_trange
+from src.training.train_model import train_model
+from src.utils import ConsoleProgressBar
 
 
-def objective(params):
+def compute_loss_for_dataset(dataset: dict, train_params: dict) -> float:
     """
-    Objective function for hyperparameter tuning.
+    Computes the loss for a given dataset and training parameters.
 
-    Args:
-        params (dict): A dictionary of hyperparameters.
+    :param dataset: The dataset to compute the loss for.
+    :param train_params: Training parameters for the model.
 
-    Returns:
-        dict: A dictionary with the 'loss', 'status', and 'evaluation_result'.
+    :return: Computed loss for the given dataset.
     """
-    evaluation_result = train_model(
-        causal_data=params['causal_data'],
-        model_config=ModelConfig(**params['model_space']),
-        train_config=TrainConfig(**params['train_space']),
-        progress_manager=params['progress_manager']
-    )
-    loss = -max(x['score'] for x in evaluation_result.train_result.aucroc_scores[-100:])  # maximize aucroc scores
-    #loss = evaluation_result.train_result.auroc_scores.test_losses_true[-1]
-    params['progress_manager'].update(loop_index=1)
-    return {'loss': loss, 'status': STATUS_OK, 'evaluation_result': evaluation_result}
+    _, train_stats = train_model(dataset=dataset, disable_tqdm=True, **train_params)
+    auc_test = train_stats["test_phase"]["auc"]
+    loss_test = train_stats["test_phase"]["loss"]
+    auc_train = train_stats["train_phase"]["auc"]
+    loss_train = train_stats["train_phase"]["loss"]
+
+    # Use AUC if available, otherwise use loss
+    if len(auc_test) > 0:
+        return -max(auc_test[-5:])  # max AUC
+    if len(loss_test) > 0:
+        return min(loss_test[-5:])  # min loss
+    if len(auc_train) > 0:
+        return -max(auc_train[-5:])  # max AUC
+    return min(loss_train[-5:])  # min loss
 
 
-def merge_dicts(x, y):
-    if y is None:
-        return x
-
-    # Create a deep copy of x to avoid modifying it directly
-    result = copy.deepcopy(x)
-
-    # Rest of the code remains the same
-    for key, value in y.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = merge_dicts(result[key], value)
-        else:
-            result[key] = value
-
-    return result
+global_best_loss = float('inf')
 
 
-# model_type, max_evals, train_dataset, test_dataset, **overwrite
-def run_hyperopt(max_evals: int,
-                 causal_data: TemporalCausalData,
-                 progress_manager: Nested_trange,
-                 model_space: dict[str, Any],
-                 train_space: dict[str, Any]) -> EvaluationResult:
+def objective(dataset: dict, pbar: ConsoleProgressBar, subset_evals: int, **train_params) -> dict:
     """
-    Performs hyperparameter tuning on the given list of architectures using hyperopt.
-    """
-    save_dir = os.path.join(RESULTS_DIR, 'eval')
-    os.makedirs(save_dir, exist_ok=True)
+    Objective function for hyperopt optimization.
 
-    space = {
-        'causal_data': causal_data,
-        'model_space': model_space,
-        'train_space': train_space,
-        'progress_manager': progress_manager
+    :param dataset: The dataset for optimization.
+    :param pbar: Progress bar for tracking.
+    :param subset_evals: Number of subset evaluations.
+    :param train_params: Training parameters for the model.
+
+    :return: Dictionary containing optimization results.
+    """
+    global global_best_loss
+    num_datasets = dataset['data'].size(0)
+    total_loss = 0
+    n_evals = min(num_datasets, subset_evals)
+
+    for i in range(n_evals):
+        total_loss += compute_loss_for_dataset({k: v[i] for k, v in dataset.items()}, train_params)
+        if i < n_evals - 1:
+            pbar.update(desc=f"Subset {i+1}/{n_evals}")
+
+    if total_loss < global_best_loss:
+        global_best_loss = total_loss
+
+    pbar.update(desc=f"Subset {n_evals}/{n_evals}, loss: {total_loss:.3f}, best_loss: {global_best_loss:.3f}")
+
+    return {
+        'loss': total_loss,
+        'status': STATUS_OK,
+        'train_params': train_params
     }
 
+
+def run_hyperopt(max_evals: int, subset_evals: int, **space) -> dict:
+    """
+    Executes the hyperparameter optimization process.
+
+    :param max_evals: Maximum evaluations for optimization.
+    :param space: Search space for optimization.
+
+    :return: Best training parameters.
+    """
+    hp_space = {
+        'subset_evals': subset_evals,
+        'pbar': ConsoleProgressBar(total=max_evals * subset_evals, title='Hyperopt'),
+        **space
+    }
     trials = Trials()
-    best = fmin(fn=objective,
-                space=space,
-                algo=tpe.suggest,
-                max_evals=max_evals,
-                trials=trials, show_progressbar=False)
 
-    best_trial = trials.trials[np.argmin([_trial['result']['loss'] for _trial in trials.trials])]
-    evaluation_result: EvaluationResult = best_trial['result']['evaluation_result']
+    fmin(fn=lambda params: objective(**params),
+         space=hp_space,
+         algo=tpe.suggest,
+         max_evals=max_evals,
+         trials=trials,
+         show_progressbar=False)
 
-    return evaluation_result
+    idx_best_score = np.argmin([trial['result']['loss'] for trial in trials.trials])
+    best_train_params = trials.trials[idx_best_score]['result']['train_params']
+
+    return best_train_params

@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 
-from definitions import RESULTS_DIR
+from config import RESULTS_DIR
 from src.data.generate_toy_data import construct_random
 from src.data.toy_data.toy_data_6_nodes_non_additive import toy_data_6_nodes_non_additive
 from src.eval.soft_roc_auc import calculate_AUROC

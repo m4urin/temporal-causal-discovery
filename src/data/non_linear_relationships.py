@@ -8,7 +8,7 @@ from torch.optim import AdamW
 from tqdm import trange
 
 from src.utils import exponential_scheduler_with_warmup, get_model_device
-from src.visualisations import plot_mesh, plot_3d_points
+from src.data.visualisations import plot_mesh, plot_3d_points
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 warnings.filterwarnings("ignore", category=UserWarning, message=r'.*scheduler\.step\(\).*')

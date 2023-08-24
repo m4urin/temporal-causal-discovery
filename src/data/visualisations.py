@@ -1,8 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.ndimage import gaussian_filter1d
-import matplotlib.lines as mlines
 
 
 def plot_train_val_loss(train_losses: list[float], val_losses: list[float] = None,

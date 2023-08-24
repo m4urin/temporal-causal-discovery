@@ -14,58 +14,85 @@ import torch
 from collections import defaultdict
 from hyperopt import hp
 from pathlib import Path
+
+from hyperopt.pyll import scope
 from scipy.ndimage import gaussian_filter1d
 from torch import nn
 from torch.optim import lr_scheduler
 from tqdm import trange
 
-from definitions import DATA_DIR
+from config import DATA_DIR
 
 
 # --------- TCN ---------
 
+def receptive_field(b, n, k):
+    return n * ((2 ** b) - 1) * (k - 1) + 1
+
+
 def generate_architecture_options(max_lags, marge, minimum_num_options=1,
                                   n_blocks=None, n_layers_per_block=None, kernel_size=None):
     """Generate architecture options based on given parameters."""
-    def _receptive_field(b, n, k):
-        return n * ((2 ** b) - 1) * (k - 1) + 1
 
-    assert max_lags >= 2
     if n_blocks and n_layers_per_block and kernel_size:
         assert n_blocks >= 1 and n_layers_per_block >= 1 and kernel_size >= 2
-        valids = [(n_blocks, n_layers_per_block, kernel_size)]
-    else:
-        blocks_range = (1, 100) if n_blocks is None else (n_blocks, n_blocks + 1)
-        layers_range = (1, 2 + 1) if n_layers_per_block is None else (n_layers_per_block, n_layers_per_block + 1)
-        kernel_range = (2, 1000) if kernel_size is None else (kernel_size, kernel_size + 1)
+        return [(n_blocks, n_layers_per_block, kernel_size)]
 
-        layers_min = layers_range[0]
-        kernel_min = kernel_range[0]
+    assert max_lags is not None and max_lags >= 2, \
+        'if --n_block, --n_layers_per_block, and --kernel_size are not/partially provided, ' \
+        'a --max_lags must be provided to establish a possible architecture.'
 
-        result = set()
-        while len(result) < minimum_num_options:
-            for blocks in range(*blocks_range):
-                if max_lags + marge > _receptive_field(blocks, layers_min, kernel_min) >= max_lags:
-                    result.add((blocks, layers_min, kernel_min))
-                    break
-                for layers in range(*layers_range):
-                    if max_lags + marge > _receptive_field(blocks, layers, kernel_min) >= max_lags:
-                        result.add((blocks, layers, kernel_min))
-                        break
-                    for k_size in range(*kernel_range):
-                        if max_lags + marge > _receptive_field(blocks, layers, k_size) >= max_lags:
-                            result.add((blocks, layers, k_size))
-                            break
-            if marge > 3 * max_lags:
+    blocks_range = (1, 100) if n_blocks is None else (n_blocks, n_blocks + 1)
+    layers_range = (1, 2 + 1) if n_layers_per_block is None else (n_layers_per_block, n_layers_per_block + 1)
+    kernel_range = (2, 1000) if kernel_size is None else (kernel_size, kernel_size + 1)
+
+    layers_min = layers_range[0]
+    kernel_min = kernel_range[0]
+
+    result = set()
+    current_marge = marge
+    while len(result) < minimum_num_options:
+        for blocks in range(*blocks_range):
+            if max_lags + current_marge > receptive_field(blocks, layers_min, kernel_min) >= max_lags:
+                result.add((blocks, layers_min, kernel_min))
                 break
-            marge += 1
+            for layers in range(*layers_range):
+                if max_lags + current_marge > receptive_field(blocks, layers, kernel_min) >= max_lags:
+                    result.add((blocks, layers, kernel_min))
+                    break
+                for k_size in range(*kernel_range):
+                    if max_lags + current_marge > receptive_field(blocks, layers, k_size) >= max_lags:
+                        result.add((blocks, layers, k_size))
+                        break
+        if current_marge > 3 * marge:
+            break
+        current_marge += 1
 
-        valids = list(result)
+    valids = list(result)
+    if len(valids) == 0:
+        err = f"Cannot find a valid architecture for max_lags={max_lags}"
+        if n_blocks:
+            err += f", n_blocks={n_blocks}"
+        if n_layers_per_block:
+            err += f", n_blocks={n_layers_per_block}"
+        if kernel_size:
+            err += f", n_blocks={kernel_size}"
+        err += f". Even after increasing the marge to 3 x marge={3*marge}."
+        raise ValueError(err)
 
     return [{'n_blocks': b, 'n_layers_per_block': l, 'kernel_size': k} for b, l, k in valids]
 
 
 # --------- Datasets ---------
+
+def load_data(data_dir:str, name: str):
+    """ Load and preprocess data from a zip file. """
+    if data_dir == 'causeme':
+        return load_causeme_data(name)
+    if data_dir == 'synthetic':
+        return load_synthetic_data(name)
+    raise ValueError(f"Cannot load '{data_dir}'.")
+
 
 def load_synthetic_data(name: str):
     """ Load and preprocess synthetic data from a zip file. """
@@ -96,6 +123,10 @@ def load_causeme_data(name: str):
 
     data = torch.from_numpy(data).float().transpose(-1, -2).unsqueeze(dim=1)
     return preprocess_data(name=name, data=data)
+
+def write_causeme_predictions():
+    # TODO
+    pass
 
 
 def preprocess_data(name, data, data_mean=None, gt=None):
@@ -315,7 +346,7 @@ def smooth_line(x: np.ndarray, sigma=4.0, axis=-1, reduce_size: int = None):
 
 # --------- Pretty Printing Functions ---------
 
-def pretty_number(a_number, significant_digits):
+def pretty_number(a_number, significant_digits=1):
     """ Convert a number to a readable format with the specified number of significant digits. """
     # Validate the input for number of significant digits
     if significant_digits <= 0:
@@ -327,21 +358,12 @@ def pretty_number(a_number, significant_digits):
         return "0"
 
     # If the number is very small or very large, format it using scientific notation
-    elif abs_n < 0.001 or abs_n >= 1e7:
-        format_str = "{:." + str(significant_digits - 1) + "e}"
-        return format_str.format(a_number)
+    format1 = str(a_number)
+    format2 = ("{:." + str(significant_digits) + "e}").format(a_number)
 
-    # For medium-sized numbers, format with fixed decimal places
-    else:
-        # Find out the number of digits before the decimal point
-        int_digits = len(str(int(abs_n)))
-
-        # Calculate how many digits should be after the decimal point
-        decimal_digits = max(0, significant_digits - int_digits)
-
-        # Construct the format string and return the formatted value
-        format_str = "{:." + str(decimal_digits) + "f}"
-        return format_str.format(a_number)
+    if len(format1) < len(format2):
+        return format1
+    return format2
 
 
 def tensor_dict_to_str(obj):
@@ -411,12 +433,21 @@ def valid_number(data_type, min_incl=None, min_excl=None, max_incl=None, max_exc
 
 # --------- Hyperopt ---------
 
-def loguniform_10(label, a, b):
+def hp_loguniform_10(label, low, high):
     """
     A loguniform distribution with base 10 for use in hyperparameter
-    optimization, bounded between 10^a and 10^b.
+    optimization, bounded between 10^low and 10^high.
     """
-    return hp.loguniform(label, math.log(10 ** a), math.log(10 ** b))
+    return hp.loguniform(label, math.log(10 ** low), math.log(10 ** high))
+
+
+def hp_pow(label, low: int, high: int, base: int = 2):
+    """
+    Create a power distribution for hyperparameter optimization.
+    Example:
+        If base=2, low=2, and high=5, the distribution will include values: [2^2, 2^3, 2^4, 2^5].
+    """
+    return scope.pow(base, scope.int(hp.quniform(label, low, high, 1.0)))
 
 
 # --------- Other utilities ---------
@@ -477,12 +508,14 @@ class ConsoleProgressBar:
     Create a console-based progress bar for tracking the advancement of a process.
     Displays progress percentage, elapsed and estimated time, along with an optional description.
     """
-    def __init__(self, total, display_interval=1):
+    def __init__(self, total, display_interval=1, title=None):
         self.total = total
         self.current = 0
         self.display_interval = display_interval
         self.start_time = time.time()
         self.desc = ""
+        self.title = title if title is not None else "Progress"
+        self.update(0)
 
     def update(self, n=1, desc=None):
         if desc is not None:
@@ -502,9 +535,10 @@ class ConsoleProgressBar:
 
         estimated_end_time = time.localtime(time.time() + estimated_time_left)
 
-        print(f"Progress: {self.current}/{self.total} ({progress_percentage:.2f}%) "
+        eta_str = time.strftime('%Y-%m-%d %H:%M', estimated_end_time) if self.current > 0 else "???"
+        print(f"{self.title}: {self.current}/{self.total} ({progress_percentage:.2f}%) "
               f"[{self._format_time(elapsed_time)}<{self._format_time(estimated_time_left)}] "
-              f"[ETA {time.strftime('%Y-%m-%d %H:%M', estimated_end_time)}] "
+              f"[ETA {eta_str}] "
               f"[{self.desc}]")
 
     def finish(self):
@@ -536,7 +570,7 @@ def read_json(filepath: str) -> dict:
         return json.load(file)
 
 
-def write_json(filepath: str, data: dict) -> None:
+def write_json(filepath: str, data: dict):
     """Write dictionary data as JSON to the specified file path."""
     with open(filepath, "w") as file:
         json.dump(data, file, indent=4)
@@ -582,3 +616,57 @@ def write_object_pickled(filepath: str, data):
     """ Writes an object to a file in pickled format. """
     with open(filepath, "wb") as pickle_file:
         pickle.dump(data, pickle_file)
+
+
+# --------- CauseMe benchmark ---------
+
+def get_method_simple_description(model, weight_sharing=False, recurrent=False,
+                                  aleatoric=False, epistemic=False, softmax_method=None, **args):
+    sub_models = [model]
+    if weight_sharing:
+        sub_models.append('WS')
+    if recurrent:
+        sub_models.append('Rec')
+    if epistemic:
+        sub_models.append('E')
+    elif aleatoric:
+        sub_models.append('A')
+    if model == 'TAMCaD' and softmax_method is not None:
+        sub_models.append(softmax_method)
+    return "-".join(sub_models)
+
+
+def get_method_hp_description(model, lr, epochs, weight_decay, hidden_dim, dropout, lambda1, architecture,
+                              n_heads, softmax_method, beta, recurrent=False, aleatoric=False, epistemic=False,
+                              weight_sharing=False, **args):
+    kernel_size = architecture['kernel_size']
+    n_layers_per_block = architecture['n_layers_per_block']
+    n_blocks = architecture['n_blocks']
+
+    if model == 'NAVAR':
+        method_sha = "e0ff32f63eca4587b49a644db871b9a3"
+    elif model == 'TAMCaD':
+        method_sha = "8fbf8af651eb4be7a3c25caeb267928a"
+    else:
+        raise ValueError("not a valid model")
+
+    sub_models = []
+    if weight_sharing:
+        sub_models.append('WS')
+    if recurrent:
+        sub_models.append('Rec')
+    if epistemic:
+        sub_models.append('E')
+    elif aleatoric:
+        sub_models.append('A')
+    sub_models = "-".join(sub_models)
+
+    params = f""
+    if model == 'TAMCaD':
+        params += f"{softmax_method}, n_heads={n_heads}, beta={pretty_number(beta)}, "
+    params += f"hidden_dim={hidden_dim}, kernel_size={kernel_size}, n_layers={n_layers_per_block}, " \
+              f"n_blocks={n_blocks}, lambda1={pretty_number(lambda1)}, epochs={epochs}, lr={pretty_number(lr)}, " \
+              f"weight_decay={pretty_number(weight_decay)}, dropout={pretty_number(dropout)}"
+
+    return {'parameter_values': f"{sub_models}) ({params}", 'method_sha': method_sha}
+

@@ -3,14 +3,13 @@ import os
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-import pprint
 
-from definitions import RESULTS_DIR
+from config import RESULTS_DIR
 from src.data.generate_toy_data import construct_temporal_causal_data
 from src.data.temporal_causal_data import TemporalCausalData
 from src.experiments.train_model import train_model
-from src.utils import tensor_dict_to_str, smooth_line
-from src.visualisations import plot_heatmap
+from src.utils import smooth_line
+from src.data.visualisations import plot_heatmap
 
 
 def run(causal_data: TemporalCausalData, model_name, weight_sharing, recurrent):

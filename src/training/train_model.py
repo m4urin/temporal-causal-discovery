@@ -7,9 +7,19 @@ from src.eval.soft_roc_auc import roc_auc_score, soft_roc_auc_score
 from src.utils import exponential_scheduler_with_warmup
 
 
-def train_model(data: torch.Tensor, model: str, lr: float, epochs: int, weight_decay: float, test_size: float,
-                gt: torch.Tensor = None, data_mean: torch.Tensor = None, disable_tqdm: bool = False, lambda1: float = 0.2,
-                beta: float = 0.2, start_coeff=-3, end_coeff=0, name: str = "", **model_params):
+def train_model(
+        dataset: dict,
+        model: str,
+        lr: float,
+        epochs: int,
+        weight_decay: float,
+        test_size: float,
+        lambda1: float,
+        beta: float,
+        start_coeff: float,
+        delta_coeff: float,
+        disable_tqdm: bool = False,
+        **model_params):
     """
     Trains a model.
 
@@ -26,23 +36,23 @@ def train_model(data: torch.Tensor, model: str, lr: float, epochs: int, weight_d
     Returns:
     - A dictionary of training statistics.
     """
-
+    num_variables = dataset['data'].size(-2)
     if model == 'NAVAR':
-        model = NAVAR(n_variables=data.size(1), **model_params)
+        model = NAVAR(num_variables, **model_params)
     elif model == 'TAMCaD':
-        model = TAMCaD(n_variables=data.size(1), **model_params)
+        model = TAMCaD(num_variables, **model_params)
     else:
         raise NotImplementedError('Not supported!')
 
     # Move model and data to GPU if available
     if torch.cuda.is_available():
         model = model.cuda()
-        data = data.cuda()
-        if gt is not None:
-            gt = gt.cuda()
+        dataset = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in dataset.items()}
 
     # Split data into training and testing sets
-    x_test, y_test, gt_test, x_train, y_train, gt_train = split_data(data, gt, test_size)
+    x_test, y_test, gt_test, x_train, y_train, gt_train = split_data(dataset['data'],
+                                                                     dataset['gt'] if 'gt' in dataset else None,
+                                                                     test_size)
 
     # Optimizers
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -50,31 +60,30 @@ def train_model(data: torch.Tensor, model: str, lr: float, epochs: int, weight_d
                                                   warmup_ratio=0.1, cooldown_ratio=0.2)
 
     stats = {
-        'model': model,
         'params': {
             'model': model_params,
             'train': {'lr': lr, 'epochs': epochs, 'weight_decay': weight_decay, 'test_size': test_size}
         }
     }
 
-    return execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train, optimizer, scheduler,
-                            epochs, stats, lambda1, beta, start_coeff, end_coeff, disable_tqdm)
+    return model, execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train, optimizer, scheduler,
+                                   epochs, stats, lambda1, beta, start_coeff, delta_coeff, disable_tqdm)
 
 
 def execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train, optimizer, scheduler,
-                     epochs, stats, lambda1, beta, start_coeff, end_coeff, disable_tqdm):
+                     epochs, stats, lambda1, beta, start_coeff, delta_coeff, disable_tqdm):
     stats.update({
         "train_phase": create_empty_stats_phase(),
         "test_phase": create_empty_stats_phase()
     })
 
-    delta_coeff = end_coeff - start_coeff
     model.train()
     progressbar = trange(epochs, disable=disable_tqdm)
 
     for epoch in progressbar:
         coeff = 10 ** (start_coeff + delta_coeff * epoch / epochs)
-        train_results = process_epoch(model, x_train, y_train, optimizer, scheduler, lambda1=lambda1, beta=beta, coeff=coeff)
+        train_results = process_epoch(model, x_train, y_train, optimizer, scheduler,
+                                      lambda1=lambda1, beta=beta, coeff=coeff)
 
         if epoch % 20 == 0 or epoch == epochs - 1:
             with torch.no_grad():

@@ -33,14 +33,14 @@ class NAVAR(nn.Module):
         loss_function(y_true, **kwargs): Compute the loss for training.
         analysis(**kwargs): Perform analysis using the NAVAR model.
     """
-    def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
-                 dropout=0.0, weight_sharing=False, recurrent=False,
-                 aleatoric=False, epistemic=False, uncertainty_contributions=False, n_heads=None, softmax_method=None):
+    def __init__(self, n_variables, hidden_dim, architecture, dropout,
+                 weight_sharing, recurrent, aleatoric, epistemic, **kwargs):
         super().__init__()
-        if uncertainty_contributions:
-            self.navar = NAVAR_Uncertainty(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
-                                           dropout, weight_sharing, recurrent)
-        elif epistemic:
+        kernel_size = architecture['kernel_size']
+        n_blocks = architecture['n_blocks']
+        n_layers_per_block = architecture['n_layers_per_block']
+
+        if epistemic:
             self.navar = NAVAR_Epistemic(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                                          dropout, weight_sharing, recurrent)
         elif aleatoric:
@@ -120,7 +120,7 @@ class NAVAR_Default(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, contributions, lambda1=0.2):
+    def loss_function(y_true, prediction, contributions, lambda1):
         # Mean squared error loss
         loss = nn.functional.mse_loss(prediction, y_true)
         regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
@@ -200,7 +200,7 @@ class NAVAR_Aleatoric(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, contributions, log_var_aleatoric, lambda1=0.2):
+    def loss_function(y_true, prediction, contributions, log_var_aleatoric, lambda1):
         aleatoric_loss = NLL_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric)
         regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
 
@@ -208,96 +208,6 @@ class NAVAR_Aleatoric(nn.Module):
 
 
 class NAVAR_Epistemic(nn.Module):
-    def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
-                 dropout=0.0, weight_sharing=False, recurrent=False):
-        super().__init__()
-
-        # TCN to learn additive contributions
-        self.contributions = TCN(
-            in_channels=n_variables,
-            out_channels=n_variables * n_variables,
-            hidden_dim=n_variables * hidden_dim,
-            kernel_size=kernel_size,
-            n_blocks=n_blocks,
-            n_layers_per_block=n_layers_per_block,
-            groups=n_variables,
-            dropout=dropout,
-            weight_sharing=weight_sharing,
-            recurrent=recurrent
-        )
-
-        # TCN to learn epistemic uncertainty
-        self.epistemic = TCN(
-            in_channels=n_variables,
-            out_channels=2 * n_variables,
-            hidden_dim=2 * hidden_dim,
-            kernel_size=kernel_size,
-            n_blocks=n_blocks,
-            n_layers_per_block=n_layers_per_block,
-            groups=1,
-            dropout=dropout,
-            weight_sharing=weight_sharing,
-            recurrent=recurrent
-        )
-
-        # Learnable biases
-        self.biases = nn.Parameter(torch.ones(1, n_variables, 1) * 0.01)
-
-    def forward(self, x):
-        batch_size, n, seq = x.size()
-
-        log_v, log_beta = self.epistemic(x).chunk(2, dim=2)  # (batch_size, n, seq)
-        log_var_aleatoric = log_beta - log_v
-
-        # Calculate contributions
-        contributions = self.contributions(x).reshape(batch_size, n, n, seq)
-
-        # Sum contributions and add biases
-        prediction = contributions.sum(dim=1) + self.biases
-
-        return {
-            'prediction': prediction,
-            'contributions': contributions.transpose(1, 2),
-            'log_var_aleatoric': log_var_aleatoric,
-            'log_v': log_v
-        }
-
-    @staticmethod
-    def analysis(prediction, contributions, log_var_aleatoric, log_v):
-        # Calculate aleatoric and epistemic uncertainties
-        # contributions: (bs, n, n, sequence_length)
-        aleatoric = torch.exp(0.5 * log_var_aleatoric)  # (bs, n, sequence_length)
-        epistemic = torch.exp(-0.5 * log_v)  # (bs, n, sequence_length)
-        epistemic_contr = epistemic.unsqueeze(2).expand(-1, -1, epistemic.size(1), -1)  # (bs, n, n, sequence_length)
-
-        temp_confidence_matrix = 1 / epistemic_contr  # (bs, n, n, sequence_length)
-        temp_causal_matrix = weighted_sliding_window_std(contributions, weights=temp_confidence_matrix,
-                                                         window=(25, 25), dim=-1)  # (bs, n, n, sequence_length)
-
-        default_confidence_matrix = temp_confidence_matrix.mean(dim=-1)  # (bs, n, n)
-        default_causal_matrix = weighted_std(contributions, weights=temp_confidence_matrix, dim=-1)  # (bs, n, n)
-
-        return {
-            'prediction': prediction,
-            'contributions': contributions,
-            'aleatoric': aleatoric,
-            'epistemic': epistemic,
-            'default_causal_matrix': default_causal_matrix,
-            'default_confidence_matrix': default_confidence_matrix,
-            'temp_causal_matrix': temp_causal_matrix,
-            'temp_confidence_matrix': temp_confidence_matrix,
-        }
-
-    @staticmethod
-    def loss_function(y_true, prediction, contributions, log_var_aleatoric, log_v, lambda1=0.2, coeff=1e-1):
-        # Calculate epistemic uncertainty term
-        epistemic_loss = DER_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric, log_v=log_v, coeff=coeff)
-        regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
-
-        return epistemic_loss + regularization
-
-
-class NAVAR_Uncertainty(nn.Module):
     def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                  dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
@@ -396,7 +306,7 @@ class NAVAR_Uncertainty(nn.Module):
 
     @staticmethod
     def loss_function(y_true, prediction, contributions, log_var_aleatoric, log_v,
-                      log_var_aleatoric_contr, log_v_contr, lambda1=0.2, coeff=1e-1):
+                      log_var_aleatoric_contr, log_v_contr, lambda1, coeff):
         # Calculate epistemic uncertainty term for individual contributions
         epistemic_loss_contr = DER_loss(y_true=y_true.unsqueeze(1), y_pred=contributions,
                                         log_var=log_var_aleatoric_contr, log_v=log_v_contr, coeff=coeff)

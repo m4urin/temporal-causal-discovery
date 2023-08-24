@@ -3,7 +3,7 @@ import os.path
 import torch
 from tqdm import trange
 
-from definitions import DATA_DIR, DEVICE
+from config import DATA_DIR, DEVICE
 from src.data.temporal_causal_data import TemporalCausalData
 from src.data.synthetic_temporal_causal_graph import SyntheticTCG
 from src.data.timeseries_data import TimeSeriesData

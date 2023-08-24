@@ -58,7 +58,7 @@ def NAVAR_regularization_loss(contributions, lambda1=0.2):
     return regularization_term
 
 
-def TAMCaD_regularization_loss(attentions, lambda1=0.2, beta=0.2):
+def TAMCaD_regularization_loss(attentions, lambda1, beta):
     """
     Calculate the regularization loss for TAMCaD.
 
@@ -75,9 +75,5 @@ def TAMCaD_regularization_loss(attentions, lambda1=0.2, beta=0.2):
     """
     # Calculate the absolute mean of contributions and scale by lambda1
     n = attentions.size(2)
-    regularization_term = 0
-    if beta > 0:
-        regularization_term = regularization_term + max(0, beta - lambda1) * attentions[..., range(n), range(n, 2 * n), :].mean()
-    if lambda1 > 0:
-        regularization_term = regularization_term + lambda1 * attentions.mean()
-    return regularization_term
+    regularization_term = beta * attentions[..., range(n), range(n, 2 * n), :].mean() + (1.0 - beta) * attentions.mean()
+    return lambda1 * regularization_term
