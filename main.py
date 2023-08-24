@@ -1,15 +1,11 @@
 import os
-
-from config import RESULTS_DIR
-
-#if 'GPULAB_JOB_ID' in os.environ:
-#    import sys
-#    sys.stdout = open(os.path.join(RESULTS_DIR, 'console.log'), 'w')
-
+import sys
 import argparse
+from time import sleep
 
 from hyperopt import hp
 
+from config import RESULTS_DIR
 from src.run import run
 from src.utils import hp_pow, generate_architecture_options, valid_number, hp_loguniform_10, receptive_field
 
@@ -168,5 +164,10 @@ def get_param_space():
 
 
 if __name__ == "__main__":
-    space = get_param_space()
-    run(**space)
+    if 'GPULAB_JOB_ID' in os.environ:
+        with open(os.path.join(RESULTS_DIR, 'console.log'), 'w') as sys.stdout:
+            print('test')
+            sleep(1000)
+    #    sys.stdout = open(os.path.join(RESULTS_DIR, 'console.log'), 'w')
+    #space =
+    #run(**get_param_space())
