@@ -1,5 +1,10 @@
+import os
+import sys
+
+if 'GPULAB_JOB_ID' in os.environ:
+    sys.path.append('/project_antwerp/temporal-causal-discovery/')
+
 import argparse
-import pprint
 
 from hyperopt import hp
 
