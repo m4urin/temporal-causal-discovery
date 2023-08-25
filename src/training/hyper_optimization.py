@@ -13,7 +13,7 @@ def compute_loss_for_dataset(dataset: dict, train_params: dict) -> float:
 
     :return: Computed loss for the given dataset.
     """
-    _, train_stats = train_model(dataset=dataset, **train_params)
+    _, train_stats = train_model(dataset=dataset, disable_tqdm=True, **train_params)
     auc_test = train_stats["test_phase"]["auc"]
     loss_test = train_stats["test_phase"]["loss"]
     auc_train = train_stats["train_phase"]["auc"]
