@@ -48,7 +48,6 @@ def evaluate_using_params(dataset: dict, output_dir: str, train_params: dict) ->
     for i in range(n_datasets):
         _, train_stats = train_model(
             dataset=dataset_subset(dataset, i),
-            disable_tqdm=True,
             **train_params)
 
         results.append(train_stats)
