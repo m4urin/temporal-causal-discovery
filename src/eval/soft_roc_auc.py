@@ -6,6 +6,9 @@ def roc_auc_score(y_true: torch.Tensor, y_score: torch.Tensor):
     if not torch.all((y_true == 0) | (y_true == 1)):
         raise ValueError("y_true must contain only 0's and 1's.")
 
+    n = y_true.size(1)
+    y_true = y_true[:, :, :n]
+
     # Make sure the tensors are flat
     y_true = y_true.flatten()
     y_score = y_score.flatten()
@@ -42,6 +45,9 @@ def soft_roc_auc_score(y_true: torch.Tensor, y_score: torch.Tensor, y_std: torch
     """
     if not torch.all((y_true == 0) | (y_true == 1)):
         raise ValueError("y_true must contain only 0's and 1's.")
+
+    n = y_true.size(1)
+    y_true = y_true[:, :, :n]
 
     # Make sure the tensors are flat
     y_true = y_true.flatten()

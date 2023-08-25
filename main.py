@@ -14,7 +14,7 @@ default_space = {
     'subset_evals': 1,
     'test_size': 0.2,
     'lr': 1e-4,
-    'epochs': 5000,
+    'epochs': 4000,
     'weight_decay': 1e-5,
     'hidden_dim': 64,
     'dropout': 0.2,
@@ -120,7 +120,7 @@ def get_param_space():
 
     print('Finding architecture options..')
     architecture_options = generate_architecture_options(
-        max_lags=args.max_lags, marge=10,  minimum_num_options=1,
+        max_lags=args.max_lags + 1, marge=3,  minimum_num_options=2,
         n_blocks=args.n_blocks, n_layers_per_block=args.n_layers_per_block, kernel_size=args.kernel_size)
 
     print('Options found:')

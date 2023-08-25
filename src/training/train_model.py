@@ -68,7 +68,8 @@ def train_model(
         'params': {
             'model': model_params,
             'train': {'lr': lr, 'epochs': epochs, 'weight_decay': weight_decay, 'test_size': test_size}
-        }
+        },
+        'n_parameters_model': model.n_params
     }
 
     return model, execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train, optimizer, scheduler,
