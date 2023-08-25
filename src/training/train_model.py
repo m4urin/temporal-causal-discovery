@@ -84,7 +84,7 @@ def execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train,
     })
 
     model.train()
-    progressbar = trange(epochs, disable=disable_tqdm)
+    progressbar = trange(epochs, disable=disable_tqdm or GPULAB_JOB_ID is not None)
 
     for epoch in progressbar:
         coeff = 10 ** (start_coeff + delta_coeff * epoch / epochs)

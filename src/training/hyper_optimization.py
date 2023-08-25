@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from hyperopt import fmin, tpe, Trials, STATUS_OK
 from src.training.train_model import train_model
 from src.utils import ConsoleProgressBar
@@ -13,7 +14,7 @@ def compute_loss_for_dataset(dataset: dict, train_params: dict) -> float:
 
     :return: Computed loss for the given dataset.
     """
-    _, train_stats = train_model(dataset=dataset, disable_tqdm=True, **train_params)
+    _, train_stats = train_model(dataset=dataset, **train_params)
     auc_test = train_stats["test_phase"]["auc"]
     loss_test = train_stats["test_phase"]["loss"]
     auc_train = train_stats["train_phase"]["auc"]
@@ -49,7 +50,7 @@ def objective(dataset: dict, pbar: ConsoleProgressBar, subset_evals: int, **trai
     n_evals = min(num_datasets, subset_evals)
 
     for i in range(n_evals):
-        total_loss += compute_loss_for_dataset({k: v[i] for k, v in dataset.items()}, train_params)
+        total_loss += compute_loss_for_dataset(dataset_subset(dataset, i), train_params)
         if i < n_evals - 1:
             pbar.update(desc=f"Subset {i+1}/{n_evals}")
 
@@ -92,3 +93,7 @@ def run_hyperopt(max_evals: int, subset_evals: int, **space) -> dict:
     best_train_params = trials.trials[idx_best_score]['result']['train_params']
 
     return best_train_params
+
+
+def dataset_subset(dataset: dict, i: int):
+    return {k: v[i] if isinstance(v, torch.Tensor) else v for k, v in dataset.items()}

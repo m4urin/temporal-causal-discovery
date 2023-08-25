@@ -4,7 +4,7 @@ from pprint import pprint
 import torch
 from hyperopt.pyll.stochastic import sample
 from config import RESULTS_DIR, GPULAB_JOB_ID
-from src.training.hyper_optimization import run_hyperopt
+from src.training.hyper_optimization import run_hyperopt, dataset_subset
 from src.training.train_model import train_model
 from src.utils import load_data, read_json, write_json, ConsoleProgressBar, get_method_simple_description
 
@@ -47,7 +47,7 @@ def evaluate_using_params(dataset: dict, output_dir: str, train_params: dict) ->
     pbar = ConsoleProgressBar(total=n_datasets, title='Run complete with best parameters')
     for i in range(n_datasets):
         _, train_stats = train_model(
-            dataset={k: v[i] for k, v in dataset.items()},
+            dataset=dataset_subset(dataset, i),
             disable_tqdm=True,
             **train_params)
 
