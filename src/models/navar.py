@@ -56,7 +56,7 @@ class NAVAR(nn.Module):
     def forward(self, x):
         return self.navar(x)
 
-    def loss_function(self, y_true, coeff, beta, **kwargs):
+    def loss_function(self, y_true, beta, **kwargs):
         return self.navar.loss_function(y_true, **kwargs)
 
     def analysis(self, **kwargs):
@@ -121,7 +121,7 @@ class NAVAR_Default(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, contributions, lambda1):
+    def loss_function(y_true, prediction, contributions, lambda1, coeff):
         # Mean squared error loss
         loss = nn.functional.mse_loss(prediction, y_true)
         regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
@@ -202,7 +202,7 @@ class NAVAR_Aleatoric(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, contributions, log_var_aleatoric, lambda1):
+    def loss_function(y_true, prediction, contributions, log_var_aleatoric, lambda1, coeff):
         aleatoric_loss = NLL_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric)
         regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
 
