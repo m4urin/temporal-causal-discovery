@@ -94,6 +94,7 @@ class TAMCaD_Aleatoric(nn.Module):
     def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                  n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
+        self.n = n_variables
         self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
             in_channels=3 * n_variables,
             out_channels=2 * n_variables,
@@ -110,9 +111,9 @@ class TAMCaD_Aleatoric(nn.Module):
         )
 
     def forward(self, x):
-        batch_size, n, sequence_length = x.size()
+        batch_size, _, sequence_length = x.size()
         x, attentions = self.attention_mechanism(x)
-        prediction, log_var_aleatoric = x.reshape(batch_size, n, 2, sequence_length).unbind(dim=2)
+        prediction, log_var_aleatoric = x.reshape(batch_size, self.n, 2, sequence_length).unbind(dim=2)
         return {
             'prediction': prediction,
             'attentions': attentions,
