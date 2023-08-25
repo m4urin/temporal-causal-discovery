@@ -49,7 +49,7 @@ class TAMCaD_Default(nn.Module):
                  n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
         self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
-            in_channels=n_variables,
+            in_channels=3 * n_variables,
             out_channels=n_variables,
             hidden_dim=n_variables * hidden_dim,
             groups=n_variables,
@@ -95,7 +95,7 @@ class TAMCaD_Aleatoric(nn.Module):
                  n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
         self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
-            in_channels=n_variables,
+            in_channels=3 * n_variables,
             out_channels=2 * n_variables,
             hidden_dim=n_variables * hidden_dim,
             groups=n_variables,
@@ -144,7 +144,7 @@ class TAMCaD_Epistemic(nn.Module):
                  n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
         self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
-            in_channels=n_variables,
+            in_channels=3 * n_variables,
             out_channels=3 * n_variables,
             hidden_dim=n_variables * hidden_dim,
             groups=n_variables,

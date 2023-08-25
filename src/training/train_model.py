@@ -1,10 +1,12 @@
 import torch
 from torch.optim import AdamW
 from tqdm import trange
+
+from config import GPULAB_JOB_ID
 from src.models.navar import NAVAR
 from src.models.TAMCaD import TAMCaD
 from src.eval.soft_roc_auc import roc_auc_score, soft_roc_auc_score
-from src.utils import exponential_scheduler_with_warmup
+from src.utils import exponential_scheduler_with_warmup, augment_with_sine
 
 
 def train_model(
@@ -53,6 +55,9 @@ def train_model(
     x_test, y_test, gt_test, x_train, y_train, gt_train = split_data(dataset['data'],
                                                                      dataset['gt'] if 'gt' in dataset else None,
                                                                      test_size)
+    x_train = augment_with_sine(x_train)
+    if x_test is not None:
+        x_test = augment_with_sine(x_test)
 
     # Optimizers
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -78,7 +83,7 @@ def execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train,
     })
 
     model.train()
-    progressbar = trange(epochs, disable=disable_tqdm)
+    progressbar = trange(epochs, disable=GPULAB_JOB_ID is not None or disable_tqdm)
 
     for epoch in progressbar:
         coeff = 10 ** (start_coeff + delta_coeff * epoch / epochs)

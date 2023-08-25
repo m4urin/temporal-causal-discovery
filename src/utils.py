@@ -331,6 +331,29 @@ def get_model_device(model: nn.Module):
     return next(model.parameters()).device
 
 
+def augment_with_sine(x: torch.Tensor):
+    batch_size, n, seq_len = x.size()
+
+    # Create a linear space from 0 to 2*pi for one complete cycle
+    t = torch.linspace(0, 2 * np.pi, seq_len, device=x.device)
+
+    # Compute sine and cosine
+    sine_wave = torch.sin(t)
+    cosine_wave = torch.cos(t)
+
+    # Stack the two waves together to get shape (2, seq)
+    combined_wave = torch.stack([sine_wave, cosine_wave])
+
+    # Reshape to get shape (bs, n, 2, seq)
+    combined_wave = combined_wave.unsqueeze(0).unsqueeze(0).expand(batch_size, n, -1, -1)
+    # Reshape to get shape (bs, n, 1, seq)
+    x = x.reshape(batch_size, n, 1, seq_len)
+    # Cat to get shape (bs, n, 3, seq)
+    x = torch.cat((x, combined_wave), dim=2)
+    # Reshape to get shape (bs, n*3, seq)
+    return x.reshape(batch_size, -1, seq_len)
+
+
 # --------- Numpy ---------
 
 def smooth_line(x: np.ndarray, sigma=4.0, axis=-1, reduce_size: int = None):

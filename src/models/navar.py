@@ -76,7 +76,7 @@ class NAVAR_Default(nn.Module):
 
         # TCN to learn additive contributions
         self.contributions = TCN(
-            in_channels=n_variables,
+            in_channels=3 * n_variables,
             out_channels=n_variables * n_variables,
             hidden_dim=n_variables * hidden_dim,
             kernel_size=kernel_size,
@@ -135,7 +135,7 @@ class NAVAR_Aleatoric(nn.Module):
 
         # TCN to learn additive contributions
         self.contributions = TCN(
-            in_channels=n_variables,
+            in_channels=3 * n_variables,
             out_channels=n_variables * n_variables,
             hidden_dim=n_variables * hidden_dim,
             kernel_size=kernel_size,
@@ -149,7 +149,7 @@ class NAVAR_Aleatoric(nn.Module):
 
         # TCN to learn aleatoric uncertainty
         self.aleatoric = TCN(
-            in_channels=n_variables,
+            in_channels=3 * n_variables,
             out_channels=n_variables,
             hidden_dim=2 * hidden_dim,
             kernel_size=kernel_size,
@@ -214,7 +214,7 @@ class NAVAR_Epistemic(nn.Module):
 
         # TCN to learn individual additive contributions
         self.contributions = TCN(
-            in_channels=n_variables,
+            in_channels=3 * n_variables,
             out_channels=3 * n_variables * n_variables,
             hidden_dim=n_variables * hidden_dim,
             kernel_size=kernel_size,
@@ -228,7 +228,7 @@ class NAVAR_Epistemic(nn.Module):
 
         # TCN to learn individual uncertainties
         self.uncertainty = TCN(
-            in_channels=n_variables,
+            in_channels=3 * n_variables,
             out_channels=2 * n_variables,
             hidden_dim=2 * hidden_dim,
             kernel_size=kernel_size,
