@@ -14,7 +14,7 @@ default_space = {
     'subset_evals': 1,
     'test_size': 0.2,
     'lr': 1e-4,
-    'epochs': 4000,
+    'epochs': 5000,
     'weight_decay': 1e-5,
     'hidden_dim': 64,
     'dropout': 0.2,

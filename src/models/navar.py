@@ -73,6 +73,7 @@ class NAVAR_Default(nn.Module):
     def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                  dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
+        self.n = n_variables
 
         # TCN to learn additive contributions
         self.contributions = TCN(
@@ -92,10 +93,10 @@ class NAVAR_Default(nn.Module):
         self.biases = nn.Parameter(torch.ones(1, n_variables, 1) * 0.01)
 
     def forward(self, x):
-        batch_size, n, seq = x.size()
+        batch_size, _, seq = x.size()
 
         # Calculate contributions: (batch_size, n, seq) -> (batch_size, n * n, seq) -> (batch_size, n, n, seq)
-        contributions = self.contributions(x).reshape(batch_size, n, n, seq)
+        contributions = self.contributions(x).reshape(batch_size, self.n, self.n, seq)
 
         # Sum contributions and add biases
         prediction = contributions.sum(dim=1) + self.biases
@@ -132,6 +133,7 @@ class NAVAR_Aleatoric(nn.Module):
     def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                  dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
+        self.n = n_variables
 
         # TCN to learn additive contributions
         self.contributions = TCN(
@@ -165,13 +167,13 @@ class NAVAR_Aleatoric(nn.Module):
         self.biases = nn.Parameter(torch.ones(1, n_variables, 1) * 0.01)
 
     def forward(self, x):
-        batch_size, n, seq = x.size()
+        batch_size, _, seq = x.size()
 
         # Calculate aleatoric uncertainty
         log_var_aleatoric = self.aleatoric(x)  # (batch_size, n, seq)
 
         # Calculate contributions
-        contributions = self.contributions(x).reshape(batch_size, n, n, seq)
+        contributions = self.contributions(x).reshape(batch_size, self.n, self.n, seq)
 
         # Sum contributions and add biases
         prediction = contributions.sum(dim=1) + self.biases
@@ -211,6 +213,7 @@ class NAVAR_Epistemic(nn.Module):
     def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
                  dropout=0.0, weight_sharing=False, recurrent=False):
         super().__init__()
+        self.n = n_variables
 
         # TCN to learn individual additive contributions
         self.contributions = TCN(
@@ -230,7 +233,7 @@ class NAVAR_Epistemic(nn.Module):
         self.uncertainty = TCN(
             in_channels=3 * n_variables,
             out_channels=2 * n_variables,
-            hidden_dim=2 * hidden_dim,
+            hidden_dim=hidden_dim,
             kernel_size=kernel_size,
             n_blocks=n_blocks,
             n_layers_per_block=n_layers_per_block,
@@ -244,15 +247,14 @@ class NAVAR_Epistemic(nn.Module):
         self.biases = nn.Parameter(torch.ones(1, n_variables, 1) * 0.01)
 
     def forward(self, x):
-        batch_size, n, seq = x.size()
+        batch_size, _, seq = x.size()
 
         # Calculate uncertainties for individual contributions
-        contr = self.contributions(x).reshape(batch_size, n, 3 * n, seq)
+        contr = self.contributions(x).reshape(batch_size, self.n, 3 * self.n, seq)
         contributions, log_v_contr, log_beta_contr = contr.chunk(chunks=3, dim=2)
 
         log_var_aleatoric_contr = log_beta_contr - log_v_contr
-
-        log_v, log_beta = self.uncertainty(x).reshape(batch_size, n, 2 * n, seq).chunk(chunks=2, dim=2)
+        log_v, log_beta = self.uncertainty(x).chunk(chunks=2, dim=1)
         log_var_aleatoric = log_beta - log_v
 
         # Calculate contributions and predictions
