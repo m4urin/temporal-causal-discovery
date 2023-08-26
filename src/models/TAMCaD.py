@@ -97,7 +97,7 @@ class TAMCaD_Aleatoric(nn.Module):
         self.n = n_variables
         self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
             in_channels=3 * n_variables,
-            out_channels=2 * n_variables,
+            out_channels=n_variables,
             hidden_dim=n_variables * hidden_dim,
             groups=n_variables,
             kernel_size=kernel_size,
@@ -109,11 +109,24 @@ class TAMCaD_Aleatoric(nn.Module):
             recurrent=recurrent,
             dropout=dropout
         )
+        # TCN to learn aleatoric uncertainty
+        self.aleatoric = TCN(
+            in_channels=3 * n_variables,
+            out_channels=n_variables,
+            hidden_dim=2 * hidden_dim,
+            kernel_size=kernel_size,
+            n_blocks=n_blocks,
+            n_layers_per_block=n_layers_per_block,
+            groups=1,
+            dropout=dropout,
+            weight_sharing=weight_sharing,
+            recurrent=recurrent
+        )
 
     def forward(self, x):
         batch_size, _, sequence_length = x.size()
-        x, attentions = self.attention_mechanism(x)
-        prediction, log_var_aleatoric = x.reshape(batch_size, self.n, 2, sequence_length).unbind(dim=2)
+        prediction, attentions = self.attention_mechanism(x)
+        log_var_aleatoric = self.aleatoric(x)
         return {
             'prediction': prediction,
             'attentions': attentions,
