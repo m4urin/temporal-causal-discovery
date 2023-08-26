@@ -16,7 +16,7 @@ def NLL_loss(y_true, y_pred, log_var):
     # Calculate the squared error term
     error = (y_pred - y_true).pow(2)
     # Calculate the NLL loss as the mean of log variance and the squared error term
-    return torch.mean(log_var + error.div(torch.exp(log_var)))
+    return torch.mean(log_var + error.div(torch.exp(log_var) + 1e-6))
 
 
 def DER_loss(y_true, y_pred, log_var, log_v, coeff):
