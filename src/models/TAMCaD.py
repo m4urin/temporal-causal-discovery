@@ -83,10 +83,10 @@ class TAMCaD_Default(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, attentions, lambda1, beta, coeff):
+    def loss_function(y_true, prediction, attentions, lambda1, coeff):
         # Mean squared error loss
         error = nn.functional.mse_loss(prediction, y_true)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1, beta=beta)
+        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
         return error + regularization
 
 
@@ -134,9 +134,9 @@ class TAMCaD_Aleatoric(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, attentions, log_var_aleatoric, lambda1, beta, coeff):
+    def loss_function(y_true, prediction, attentions, log_var_aleatoric, lambda1, coeff):
         aleatoric_loss = NLL_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1, beta=beta)
+        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
         return aleatoric_loss + regularization
 
 
@@ -197,9 +197,9 @@ class TAMCaD_Epistemic(nn.Module):
         }
 
     @staticmethod
-    def loss_function(y_true, prediction, attentions, log_var_aleatoric, log_v, lambda1, beta, coeff):
+    def loss_function(y_true, prediction, attentions, log_var_aleatoric, log_v, lambda1, coeff):
         epistemic_loss = DER_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric, log_v=log_v, coeff=coeff)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1, beta=beta)
+        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
         return epistemic_loss + regularization
 
 

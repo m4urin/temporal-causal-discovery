@@ -56,7 +56,7 @@ class NAVAR(nn.Module):
     def forward(self, x):
         return self.navar(x)
 
-    def loss_function(self, y_true, beta, **kwargs):
+    def loss_function(self, y_true, **kwargs):
         return self.navar.loss_function(y_true, **kwargs)
 
     def analysis(self, **kwargs):

@@ -20,7 +20,6 @@ Here is a breakdown of the arguments:
   - `TAMCaD`: To choose the TAMCaD model. Requires:
     - `--n_heads`: Specifies the number of attention heads.
     - `--softmax_method`: Choose from methods: softmax, softmax-1, normalized-sigmoid, gumbel-softmax, sparsemax, gumbel-softmax-1.
-    - `--beta`: Regularization coefficient beta.
 
 #### Model architecture:
 

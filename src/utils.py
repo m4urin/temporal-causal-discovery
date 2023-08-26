@@ -611,7 +611,7 @@ def read_bz2_file(filepath, default_value=None) -> dict:
 def write_bz2_file(filepath, data: dict):
     """Write dictionary data as compressed JSON to the specified file path."""
     with bz2.BZ2File(filepath, 'w') as bz2_file:
-        bz2_file.write(bytes(json.dumps(data, indent=4), encoding='latin1'))
+        bz2_file.write(bytes(json.dumps(data), encoding='latin1'))
 
 
 def write_module(module, filepath):
@@ -659,8 +659,8 @@ def get_method_simple_description(model, weight_sharing=False, recurrent=False,
     return "-".join(sub_models)
 
 
-def get_method_hp_description(model, lr, epochs, weight_decay, hidden_dim, dropout, lambda1, architecture,
-                              n_heads, softmax_method, beta, recurrent=False, aleatoric=False, epistemic=False,
+def get_method_hp_description(model, hidden_dim, lambda1, architecture,
+                              n_heads, softmax_method, recurrent=False, aleatoric=False, epistemic=False,
                               weight_sharing=False, **args):
     kernel_size = architecture['kernel_size']
     n_layers_per_block = architecture['n_layers_per_block']
@@ -673,23 +673,28 @@ def get_method_hp_description(model, lr, epochs, weight_decay, hidden_dim, dropo
     else:
         raise ValueError("not a valid model")
 
-    sub_models = []
+    result = []
     if weight_sharing:
-        sub_models.append('WS')
+        result.append('WS')
     if recurrent:
-        sub_models.append('Rec')
+        result.append('Rec')
     if epistemic:
-        sub_models.append('E')
+        result.append('Epistemic')
     elif aleatoric:
-        sub_models.append('A')
-    sub_models = "-".join(sub_models)
+        result.append('Aleatoric')
+    result = "-".join(result)
 
     params = f""
     if model == 'TAMCaD':
-        params += f"{softmax_method}, n_heads={n_heads}, beta={pretty_number(beta)}, "
-    params += f"hidden_dim={hidden_dim}, kernel_size={kernel_size}, n_layers={n_layers_per_block}, " \
-              f"n_blocks={n_blocks}, lambda1={pretty_number(lambda1)}, epochs={epochs}, lr={pretty_number(lr)}, " \
-              f"weight_decay={pretty_number(weight_decay)}, dropout={pretty_number(dropout)}"
+        params += f"n_heads={n_heads}, "  # beta={pretty_number(beta)}, "  {softmax_method},
+    params += f"dim={hidden_dim}, b_n_k=({n_blocks},{n_layers_per_block},{kernel_size})" #layers_per_block={n_layers_per_block}, " \
+              #f"kernel_size={kernel_size}, lambda1={pretty_number(lambda1)}"
+              #f"epochs={epochs}, lr={pretty_number(lr)}, " \
+              #f"weight_decay={pretty_number(weight_decay)}, dropout={pretty_number(dropout)}"
 
-    return {'parameter_values': f"{sub_models}) ({params}", 'method_sha': method_sha}
+    if len(result) > 0:
+        result += ', ' + params
+    else:
+        result = params
+    return {'parameter_values': result, 'method_sha': method_sha}
 

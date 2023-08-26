@@ -17,7 +17,6 @@ def train_model(
         weight_decay: float,
         test_size: float,
         lambda1: float,
-        beta: float,
         start_coeff: float,
         delta_coeff: float,
         disable_tqdm: bool = False,
@@ -73,11 +72,11 @@ def train_model(
     }
 
     return model, execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train, optimizer, scheduler,
-                                   epochs, stats, lambda1, beta, start_coeff, delta_coeff, disable_tqdm)
+                                   epochs, stats, lambda1, start_coeff, delta_coeff, disable_tqdm)
 
 
 def execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train, optimizer, scheduler,
-                     epochs, stats, lambda1, beta, start_coeff, delta_coeff, disable_tqdm):
+                     epochs, stats, lambda1, start_coeff, delta_coeff, disable_tqdm):
     stats.update({
         "train_phase": create_empty_stats_phase(),
         "test_phase": create_empty_stats_phase()
@@ -89,12 +88,12 @@ def execute_training(model, x_test, y_test, gt_test, x_train, y_train, gt_train,
     for epoch in progressbar:
         coeff = 10 ** (start_coeff + delta_coeff * epoch / epochs)
         train_results = process_epoch(model, x_train, y_train, optimizer, scheduler,
-                                      lambda1=lambda1, beta=beta, coeff=coeff)
+                                      lambda1=lambda1, coeff=coeff)
 
         if epoch % 20 == 0 or epoch == epochs - 1:
             with torch.no_grad():
                 update_stats(model, stats, train_results, x_test, y_test, gt_test, gt_train,
-                             coeff, lambda1, beta, progressbar, end=epoch == epochs - 1)
+                             coeff, lambda1, progressbar, end=epoch == epochs - 1)
 
     return stats
 
@@ -156,13 +155,13 @@ def split_data(data: torch.Tensor, true_causal_matrix: torch.Tensor = None, test
 
 
 def update_stats(model, stats, train_results, x_test, y_test, gt_test, gt_train,
-                 coeff, lambda1, beta, progressbar, end=False):
+                 coeff, lambda1, progressbar, end=False):
     train_loss, train_output = train_results
     desc = f"train_loss={train_loss:.3f}"
     update_stats_phase(stats["train_phase"], model, train_output, gt_train, train_loss, end)
 
     if x_test is not None:
-        test_loss, test_output = process_epoch(model, x_test, y_test, lambda1=lambda1, beta=beta, coeff=coeff)
+        test_loss, test_output = process_epoch(model, x_test, y_test, lambda1=lambda1, coeff=coeff)
         desc += f", test_loss={test_loss:.3f}"
         update_stats_phase(stats["test_phase"], model, test_output, gt_test, test_loss, end)
 

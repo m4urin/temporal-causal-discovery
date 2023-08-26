@@ -14,14 +14,13 @@ default_space = {
     'subset_evals': 1,
     'test_size': 0.2,
     'lr': 1e-4,
-    'epochs': 5000,
+    'epochs': 7000,
     'weight_decay': 1e-5,
     'hidden_dim': 64,
     'dropout': 0.2,
     'lambda1': 0.2,
     'n_heads': 4,
     'softmax_method': 'softmax',
-    'beta': 0.5,
     'start_coeff': -3,
     'delta_coeff': 2,  # coeff moves from 10^-3 to 10^-1,
     'recurrent': False,
@@ -37,7 +36,6 @@ hyperopt_space = {
     'lr': hp_loguniform_10('lr', -6, -2),
     'weight_decay': hp_loguniform_10('weight_decay', -6, -2),
     'lambda1': hp_loguniform_10('lambda1', -3, 0),
-    'beta': hp.uniform('beta', 0.0, 1.0),
     'start_coeff': hp.uniform('start_coeff', -4, 0),
     'delta_coeff': hp.uniform('delta_coeff', 0, 3)
 }
@@ -76,7 +74,6 @@ def parse_args():
     parser.add_argument("--n_heads", type=valid_number(int, min_incl=1), default=None)
     methods = ['softmax', 'softmax-1', 'normalized-sigmoid', 'gumbel-softmax', 'sparsemax', 'gumbel-softmax-1']
     parser.add_argument("--softmax_method", type=str, choices=methods, default=None)
-    parser.add_argument("--beta", type=valid_number(float, min_incl=0.0, max_incl=1.0), default=None)
     parser.add_argument("--start_coeff", type=valid_number(float), default=None)
     parser.add_argument("--delta_coeff", type=valid_number(float), default=None)
 
@@ -152,7 +149,6 @@ def get_param_space():
     if param_space['model'] == 'NAVAR':
         param_space['n_heads'] = None
         param_space['softmax_method'] = None
-        param_space['beta'] = None
     if not param_space['epistemic']:
         param_space['start_coeff'] = 0
         param_space['delta_coeff'] = 0

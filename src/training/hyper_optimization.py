@@ -45,19 +45,18 @@ def objective(dataset: dict, pbar: ConsoleProgressBar, subset_evals: int, **trai
     :return: Dictionary containing optimization results.
     """
     global global_best_loss
-    num_datasets = dataset['data'].size(0)
     total_loss = 0
-    n_evals = min(num_datasets, subset_evals)
 
-    for i in range(n_evals):
+    for i in range(subset_evals):
         total_loss += compute_loss_for_dataset(dataset_subset(dataset, i), train_params)
-        if i < n_evals - 1:
-            pbar.update(desc=f"Subset {i+1}/{n_evals}")
+        if i < subset_evals - 1:
+            pbar.update(desc=f"Subset {i+1}/{subset_evals}")
 
     if total_loss < global_best_loss:
         global_best_loss = total_loss
 
-    pbar.update(desc=f"Subset {n_evals}/{n_evals}, loss: {total_loss:.3f}, best_loss: {global_best_loss:.3f}")
+    desc = f"Subset {subset_evals}/{subset_evals}, " if subset_evals > 1 else ""
+    pbar.update(desc=f"{desc}loss: {total_loss:.3f}, best_loss: {global_best_loss:.3f}")
 
     return {
         'loss': total_loss,
@@ -66,7 +65,7 @@ def objective(dataset: dict, pbar: ConsoleProgressBar, subset_evals: int, **trai
     }
 
 
-def run_hyperopt(max_evals: int, subset_evals: int, **space) -> dict:
+def run_hyperopt(max_evals: int, subset_evals: int, dataset, **space) -> dict:
     """
     Executes the hyperparameter optimization process.
 
@@ -75,7 +74,11 @@ def run_hyperopt(max_evals: int, subset_evals: int, **space) -> dict:
 
     :return: Best training parameters.
     """
+    num_datasets = dataset['data'].size(0)
+    subset_evals = min(num_datasets, subset_evals)
+
     hp_space = {
+        'dataset': dataset,
         'subset_evals': subset_evals,
         'pbar': ConsoleProgressBar(total=max_evals * subset_evals, title='Hyperopt'),
         **space
