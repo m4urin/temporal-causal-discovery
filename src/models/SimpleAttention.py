@@ -65,7 +65,7 @@ class SimpleAttention(nn.Module):
 
         self.hidden_dim = hidden_dim
 
-        reg_mask = (torch.rand(1, k, n, n, 1) < 0.5).float()  #(1 / (n - 1))
+        reg_mask = (torch.rand(1, k, n, n, 1) < 0.4).float()  #(1 / (n - 1))
         self.register_buffer("reg_mask", reg_mask)
 
         self.relu = nn.ReLU()

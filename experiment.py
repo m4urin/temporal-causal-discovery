@@ -1,6 +1,5 @@
 import os
 
-import numpy as np
 import torch
 
 from config import RESULTS_DIR
@@ -28,7 +27,8 @@ def write_to_file(causal_matrices, output_dir):  # (200, 5, 5) tensor
         'experiment': 'nonlinear-VAR_N-5_T-300',
         'model': 'nonlinear-VAR',
         'method_sha': '8fbf8af651eb4be7a3c25caeb267928a',
-        'scores': causal_matrices.reshape(200, -1).numpy().tolist()
+        'scores': causal_matrices.reshape(200, -1).numpy().tolist(),
+        'parameter_values': 'max_lags=7, hidden_dim=16'
     }
     write_bz2_file(os.path.join(output_dir, f'result.json.bz2'), file_dict)
 
@@ -41,8 +41,8 @@ def run():
     results = []
     for d in data:
         x, y = d[..., :-1], d[..., 1:]
-        model = SimpleAttention(k=3, n=5, n_layers=3, hidden_dim=16, dropout=0.1).cuda()
-        result = train_model(model, x, y, epochs=150, lr=5e-3, disable_tqdm=True)
+        model = SimpleAttention(k=80, n=5, n_layers=3, hidden_dim=16, dropout=0.1).cuda()
+        result = train_model(model, x, y, epochs=1500, lr=5e-3, disable_tqdm=True)
         cm = make_causal_matrix(**result)
         results.append(cm)
         pbar.update()
