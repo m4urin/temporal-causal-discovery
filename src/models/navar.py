@@ -203,10 +203,10 @@ class NAVAR_Aleatoric(nn.Module):
 
     @staticmethod
     def loss_function(y_true, prediction, contributions, log_var_aleatoric, lambda1, coeff):
-        aleatoric_loss = NLL_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric)
+        aleatoric_loss = NLL_loss(y_true=y_true.unsqueeze(1), y_pred=contributions, log_var=log_var_aleatoric)
         regularization = NAVAR_regularization_loss(contributions, lambda1=lambda1)
-
-        return aleatoric_loss + regularization
+        error = ((prediction - y_true) ** 2).mean()
+        return error + aleatoric_loss + regularization
 
 
 class NAVAR_Epistemic(nn.Module):

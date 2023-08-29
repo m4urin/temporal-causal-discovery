@@ -524,13 +524,7 @@ class TemporalBlock(nn.Module):
         self.use_residual = use_residual
 
         for i in range(n_layers):
-            self.convolutions.append(nn.utils.weight_norm(nn.Conv1d(
-                in_channels=in_channels if i == 0 else out_channels,
-                out_channels=out_channels,
-                kernel_size=kernel_size,
-                dilation=dilation,
-                groups=groups
-            )))
+            self.convolutions.append(nn.utils.weight_norm())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """

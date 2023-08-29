@@ -548,6 +548,9 @@ class ConsoleProgressBar:
         if self.current % self.display_interval == 0 or self.current == self.total:
             self.display()
 
+    def set_description(self, desc):
+        self.desc = desc
+
     def display(self):
         elapsed_time = time.time() - self.start_time
         progress_percentage = (self.current / self.total) * 100

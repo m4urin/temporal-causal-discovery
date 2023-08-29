@@ -24,7 +24,7 @@ def pretty_print_dict(d: dict):
     pprint(tensor_to_size(d))
 
 
-p = "../results/causeme/"  # Replace this with the desired path
+p = "../results/causeme/NAVAR_synthetic_N-5_T-500_K-6"  # Replace this with the desired path
 
 all_folder_names = [f for f in os.listdir(p) if 'synthetic' not in f and os.path.isdir(os.path.join(p, f))]
 for folder_name in tqdm(all_folder_names):
@@ -42,27 +42,36 @@ for folder_name in tqdm(all_folder_names):
     file_dict['model'] = dataset_name.split('_')[0]
 
     all_scores = []
-    for r in results:
+    for i, r in enumerate(results):
         temp_causal_matrix = r['train_phase']['causal_matrix_end']  # (1, N, N, T)
 
-        min_ = torch.nan_to_num(temp_causal_matrix, nan=10000).min()
-        max_ = torch.nan_to_num(temp_causal_matrix, nan=-10000).max()
-        temp_causal_matrix = torch.nan_to_num(temp_causal_matrix, nan=min_, neginf=min_, posinf=max_)
-        temp_causal_matrix = temp_causal_matrix - min_
-        if max_ > 0:
-            temp_causal_matrix = temp_causal_matrix / max_
+        #min_ = torch.nan_to_num(temp_causal_matrix, nan=10000).min()
+        #max_ = torch.nan_to_num(temp_causal_matrix, nan=-10000).max()
+        #temp_causal_matrix = torch.nan_to_num(temp_causal_matrix, nan=min_, neginf=min_, posinf=max_)
+        #temp_causal_matrix = temp_causal_matrix - min_
+        #if max_ > 0:
+        #    temp_causal_matrix = temp_causal_matrix / max_
 
         n_nans = temp_causal_matrix.isnan().sum()
         if n_nans > 0:
-            print(min_, max_)
-            print(folder_name, n_nans)
+            #print(min_, max_)
+            print(folder_name, "nans:", n_nans)
             assert False
+        _max = temp_causal_matrix.max()
+
+        if _max <= 0:
+            print(folder_name, 'max:', _max)
 
         temp_causal_matrix = temp_causal_matrix.mean(dim=(0, -1))  # (N, N)
+        if i == 0:
+            print(temp_causal_matrix.max())
+
+        temp_causal_matrix = temp_causal_matrix - temp_causal_matrix.min()
+        temp_causal_matrix = temp_causal_matrix / temp_causal_matrix.max()
+
         temp_causal_matrix = temp_causal_matrix.t()  # scores must be A_ij where i causes j
         temp_causal_matrix = temp_causal_matrix.flatten().cpu().numpy()
         all_scores.append(temp_causal_matrix)
-
 
     all_scores = np.array(all_scores)
     #all_scores[np.isnan(all_scores)] = 0

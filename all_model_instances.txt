@@ -1,2 +1,74 @@
+bash -c 'chmod +x /project_antwerp/run.sh; /project_antwerp/run.sh [params]'
 
-TAMCaD --n_heads 4 --softmax_method gumbel-softmax --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 10 --subset_evals 1 --aleatoric --n_blocks 1 --max_lags 6
+Softmax:
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 40 --subset_evals 1 --n_blocks 2 --n_layers_per_block 2 --kernel_size 2 --softmax_method softmax
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 40 --subset_evals 1 --n_blocks 2 --n_layers_per_block 2 --kernel_size 2 --softmax_method softmax-1
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 40 --subset_evals 1 --n_blocks 2 --n_layers_per_block 2 --kernel_size 2 --softmax_method normalized-sigmoid
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 40 --subset_evals 1 --n_blocks 2 --n_layers_per_block 2 --kernel_size 2 --softmax_method gumbel-softmax
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 40 --subset_evals 1 --n_blocks 2 --n_layers_per_block 2 --kernel_size 2 --softmax_method gumbel-softmax-1
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 40 --subset_evals 1 --n_blocks 2 --n_layers_per_block 2 --kernel_size 2 --softmax_method sparsemax
+
+Synthetic short/long range dependency
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 6 --n_blocks 3
+TAMCaD --synthetic synthetic_N-8_T-1000_K-30 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 30 --n_blocks 4
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 6 --n_blocks 3 --weight_sharing
+TAMCaD --synthetic synthetic_N-8_T-1000_K-30 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 30 --n_blocks 4 --weight_sharing
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 6 --n_blocks 3 --recurrent
+TAMCaD --synthetic synthetic_N-8_T-1000_K-30 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 30 --n_blocks 4 --recurrent
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 6 --n_blocks 3 --weight_sharing --recurrent
+TAMCaD --synthetic synthetic_N-8_T-1000_K-30 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 30 --n_blocks 4 --weight_sharing --recurrent
+
+NAVAR --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 6 --n_blocks 3
+NAVAR --synthetic synthetic_N-8_T-1000_K-30 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 30 --n_blocks 4
+NAVAR --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 6 --n_blocks 3 --weight_sharing
+NAVAR --synthetic synthetic_N-8_T-1000_K-30 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 30 --n_blocks 4 --weight_sharing
+NAVAR --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 6 --n_blocks 3 --recurrent
+NAVAR --synthetic synthetic_N-8_T-1000_K-30 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 30 --n_blocks 4 --recurrent
+NAVAR --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 6 --n_blocks 3 --weight_sharing --recurrent
+NAVAR --synthetic synthetic_N-8_T-1000_K-30 --hyperopt --max_evals 70 --subset_evals 1 --max_lags 30 --n_blocks 4 --weight_sharing --recurrent
+
+uncertainty
+TAMCaD --synthetic synthetic_N-12_T-1000_K-6 --hyperopt --max_evals 100 --subset_evals 1 --max_lags 6 --n_layers_per_block 2
+TAMCaD --synthetic synthetic_N-12_T-1000_K-6 --hyperopt --max_evals 100 --subset_evals 1 --max_lags 6 --n_layers_per_block 2 --aleatoric
+
+NAVAR --synthetic synthetic_N-12_T-1000_K-6 --hyperopt --max_evals 100 --subset_evals 1 --max_lags 6 --n_layers_per_block 2
+NAVAR --synthetic synthetic_N-12_T-1000_K-6 --hyperopt --max_evals 100 --subset_evals 1 --max_lags 6 --n_layers_per_block 2 --aleatoric
+
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 100 --subset_evals 1 --max_lags 6 --n_layers_per_block 2
+TAMCaD --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 100 --subset_evals 1 --max_lags 6 --n_layers_per_block 2 --aleatoric
+
+NAVAR --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 100 --subset_evals 1 --max_lags 6 --n_layers_per_block 2
+NAVAR --synthetic synthetic_N-5_T-500_K-6 --hyperopt --max_evals 100 --subset_evals 1 --max_lags 6 --n_layers_per_block 2 --aleatoric
+
+
+causeme
+NAVAR --causeme nonlinear-VAR_N-3_T-300 --hyperopt --max_evals 100 --subset_evals 3 --max_lags 5
+NAVAR --causeme nonlinear-VAR_N-5_T-300 --hyperopt --max_evals 100 --subset_evals 3 --max_lags 5
+NAVAR --causeme nonlinear-VAR_N-10_T-300 --hyperopt --max_evals 100 --subset_evals 3 --max_lags 5
+NAVAR --causeme nonlinear-VAR_N-20_T-300 --hyperopt --max_evals 100 --subset_evals 3 --max_lags 5
+NAVAR --causeme river-runoff_N-12_T-4600 --hyperopt --max_evals 100 --subset_evals 3 --max_lags 5
+NAVAR --causeme TestCLIM_N-40_T-250 --hyperopt --max_evals 100 --subset_evals 3 --max_lags 5
+NAVAR --causeme TestWEATH_N-10_T-2000 --hyperopt --max_evals 100 --subset_evals 3 --max_lags 5
+
+
+NAVAR --causeme nonlinear-VAR_N-3_T-300 --hyperopt --max_evals 50 --subset_evals 3 --max_lags 5 --aleatoric
+NAVAR --causeme nonlinear-VAR_N-5_T-300 --hyperopt --max_evals 50 --subset_evals 3 --max_lags 5 --aleatoric
+NAVAR --causeme nonlinear-VAR_N-10_T-300 --hyperopt --max_evals 50 --subset_evals 3 --max_lags 5 --aleatoric
+NAVAR --causeme nonlinear-VAR_N-20_T-300 --hyperopt --max_evals 50 --subset_evals 3 --max_lags 5 --aleatoric
+NAVAR --causeme river-runoff_N-12_T-4600 --hyperopt --max_evals 50 --subset_evals 3 --max_lags 5 --aleatoric
+NAVAR --causeme TestCLIM_N-40_T-250 --hyperopt --max_evals 50 --subset_evals 3 --max_lags 5 --aleatoric
+NAVAR --causeme TestWEATH_N-10_T-2000 --hyperopt --max_evals 50 --subset_evals 3 --max_lags 5 --aleatoric
+
+
+
+TODO:
+TAMCaD --causeme nonlinear-VAR_N-3_T-300 --hyperopt --max_evals 50 --subset_evals 2 --n_blocks 3 --n_layers_per_block 1 --kernel_size 2 --hidden_dim 32 --n_heads 4 --weight_decay 0.00005 --dropout 0.1 --aleatoric
+TAMCaD --causeme nonlinear-VAR_N-5_T-300 --hyperopt --max_evals 50 --subset_evals 2 --n_blocks 3 --n_layers_per_block 1 --kernel_size 2 --hidden_dim 32 --n_heads 4 --weight_decay 0.00005 --dropout 0.1 --aleatoric
+TAMCaD --causeme nonlinear-VAR_N-10_T-300 --hyperopt --max_evals 50 --subset_evals 2 --n_blocks 3 --n_layers_per_block 1 --kernel_size 2 --hidden_dim 32 --n_heads 4 --weight_decay 0.00005 --dropout 0.1 --aleatoric
+TAMCaD --causeme nonlinear-VAR_N-20_T-300 --hyperopt --max_evals 50 --subset_evals 2 --n_blocks 3 --n_layers_per_block 1 --kernel_size 2 --hidden_dim 32 --n_heads 4 --weight_decay 0.00005 --dropout 0.1 --aleatoric
+TAMCaD --causeme river-runoff_N-12_T-4600 --hyperopt --max_evals 50 --subset_evals 2 --n_blocks 3 --n_layers_per_block 1 --kernel_size 2 --hidden_dim 32 --n_heads 4 --weight_decay 0.00005 --dropout 0.1 --aleatoric
+TAMCaD --causeme TestCLIM_N-40_T-250 --hyperopt --max_evals 50 --subset_evals 2 --n_blocks 3 --n_layers_per_block 1 --kernel_size 2 --hidden_dim 32 --n_heads 4 --weight_decay 0.00005 --dropout 0.1 --aleatoric
+TAMCaD --causeme TestWEATH_N-10_T-2000 --hyperopt --max_evals 50 --subset_evals 2 --n_blocks 3 --n_layers_per_block 1 --kernel_size 2 --hidden_dim 32 --n_heads 4 --weight_decay 0.00005 --dropout 0.1 --aleatoric
+
+
+
