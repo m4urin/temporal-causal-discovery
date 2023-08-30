@@ -7,6 +7,10 @@ from src.models.SimpleAttention import SimpleAttention, train_model
 from src.utils import load_causeme_data, ConsoleProgressBar, write_bz2_file
 
 
+EXP = 'TestWEATHnoise_N-10_T-1000'
+MODEL = 'TestWEATHnoise'
+
+
 def get_output_dir(dataset_name: str) -> str:
     """Generate output directory based on current date, time, dataset name, and GPULAB job ID."""
     dir_name = f"experiment_{dataset_name}"
@@ -24,25 +28,25 @@ def make_causal_matrix(attentions, attentions_std, **kwargs):
 
 def write_to_file(causal_matrices, output_dir):  # (200, 5, 5) tensor
     file_dict = {
-        'experiment': 'nonlinear-VAR_N-5_T-300',
-        'model': 'nonlinear-VAR',
+        'experiment': EXP,
+        'model': MODEL,
         'method_sha': '8fbf8af651eb4be7a3c25caeb267928a',
         'scores': causal_matrices.reshape(200, -1).numpy().tolist(),
-        'parameter_values': 'max_lags=7, hidden_dim=16'
+        'parameter_values': 'max_lags=7, hidden_dim=32'
     }
     write_bz2_file(os.path.join(output_dir, f'result.json.bz2'), file_dict)
 
 
 def run():
-    data = load_causeme_data('nonlinear-VAR_N-5_T-300')['data'].cuda()  # (200, 1, 5, 300)
-    output_dir = get_output_dir('nonlinear-VAR_N-5_T-300')
+    data = load_causeme_data(EXP)['data'].cuda()  # (200, 1, 5, 300)
+    output_dir = get_output_dir(EXP)
 
-    pbar = ConsoleProgressBar(total=200, title='Run nonlinear-VAR_N-5_T-300')
+    pbar = ConsoleProgressBar(total=len(data), title=f'Run {EXP}')
     results = []
     for d in data:
         x, y = d[..., :-1], d[..., 1:]
-        model = SimpleAttention(k=80, n=5, n_layers=3, hidden_dim=16, dropout=0.1).cuda()
-        result = train_model(model, x, y, epochs=1500, lr=5e-3, disable_tqdm=True)
+        model = SimpleAttention(k=50, n=x.size(1), n_layers=3, hidden_dim=32, dropout=0.1).cuda()
+        result = train_model(model, x, y, epochs=1200, lr=7e-3, disable_tqdm=True)
         cm = make_causal_matrix(**result)
         results.append(cm)
         pbar.update()

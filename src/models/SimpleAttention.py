@@ -176,7 +176,7 @@ class SimpleAttention(nn.Module):
         error_attn = ((attn_predictions - y_true.unsqueeze(1)) ** 2).mean()
         attn_reg = (attentions * self.reg_mask).mean()
 
-        return error_navar + 0.5 * reg_navar + error_attn + 0.02 * attn_reg
+        return error_navar + 0.5 * reg_navar + error_attn + 0.05 * attn_reg
 
 
 def train_model(model, x, y, epochs=3000, lr=1e-3, weight_decay=1e-5, disable_tqdm=False):
