@@ -45,8 +45,8 @@ def run():
     results = []
     for d in data:
         x, y = d[..., :-1], d[..., 1:]
-        model = SimpleAttention(k=50, n=x.size(1), n_layers=3, hidden_dim=32, dropout=0.1).cuda()
-        result = train_model(model, x, y, epochs=1200, lr=7e-3, disable_tqdm=True)
+        model = SimpleAttention(n_samples=20, n_nodes=x.size(1), n_layers=3, hidden_dim=24, dropout=0.1).cuda()
+        result = train_model(model, x, y, epochs=300, lr=2e-2, disable_tqdm=False)
         cm = make_causal_matrix(**result)
         results.append(cm)
         pbar.update()

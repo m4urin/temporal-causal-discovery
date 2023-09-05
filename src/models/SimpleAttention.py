@@ -56,16 +56,19 @@ def generate_random_data():
 
 
 class SimpleAttention(nn.Module):
-    def __init__(self, k, n, n_layers=3, hidden_dim=32, dropout=0.2, **kwargs):
+    def __init__(self, n_datasets, n_samples, n_nodes, n_layers=3, hidden_dim=32, dropout=0.2, **kwargs):
         super().__init__()
         assert n_layers > 0
-        self.k = k
-        self.n = n
+        self.n_datasets = n_datasets
+        self.n_samples = n_samples
+        self.n_nodes = n_nodes
         self.receptive_field = 2 ** n_layers
 
         self.hidden_dim = hidden_dim
 
-        reg_mask = (torch.rand(1, k, n, n, 1) < 0.4).float()  #(1 / (n - 1))
+        reg_mask = (torch.rand(1, n_datasets, n_samples, n_nodes, n_nodes, 1) < 0.5).float()
+        if n_samples == 1:
+            reg_mask = None
         self.register_buffer("reg_mask", reg_mask)
 
         self.relu = nn.ReLU()
@@ -74,13 +77,14 @@ class SimpleAttention(nn.Module):
         self.conv = []
         self.tcn = []
 
+        groups = n_datasets * n_samples * n_nodes
         for i in range(n_layers):
             conv = nn.Conv1d(
-                in_channels=(k + 1) * n if i == 0 else (k + 1) * n * hidden_dim,
-                out_channels=(k + 1) * n * hidden_dim,
+                in_channels=groups if i == 0 else groups * hidden_dim,
+                out_channels=groups * hidden_dim,
                 kernel_size=2,
                 dilation=2 ** i,
-                groups=(k + 1) * n
+                groups=groups
             )
             self.conv.append(conv)
             self.tcn.extend([conv, self.relu, self.dropout])
@@ -88,76 +92,66 @@ class SimpleAttention(nn.Module):
         self.tcn = nn.Sequential(*self.tcn)
 
         self.projection = nn.Conv1d(
-            in_channels=k * n * hidden_dim,
-            out_channels=k * n * (n + hidden_dim),  # n attentions and the vector h to broadcast
+            in_channels=groups * hidden_dim,
+            out_channels=groups * (n_nodes + hidden_dim),  # n attentions and the vector h to broadcast
             kernel_size=1,
-            groups=k * n
+            groups=groups
         )
 
         self.prediction = nn.Sequential(
             nn.Conv1d(
-                in_channels=k * n * hidden_dim,
-                out_channels=k * n * hidden_dim // 2,
+                in_channels=groups * hidden_dim,
+                out_channels=groups * hidden_dim // 2,
                 kernel_size=1,
-                groups=k * n
+                groups=groups
             ),
             self.relu,
             nn.Conv1d(
-                in_channels=k * n * hidden_dim // 2,
-                out_channels=k * n,
+                in_channels=groups * hidden_dim // 2,
+                out_channels=groups,
                 kernel_size=1,
-                groups=k * n
+                groups=groups
             )
         )
-
-        self.contributions = nn.Conv1d(
-            in_channels=n * hidden_dim,
-            out_channels=n * n,
-            kernel_size=1,
-            groups=n
-        )
-        self.biases = nn.Parameter(torch.ones(1, n, 1) * 0.001)
 
         self.n_params = count_parameters(self)
 
     def forward(self, x, temperature=1.0):
 
         """ TCN """
-        # x: (batch_size, n, sequence_length)
+        # x: (batch_size, d, n, sequence_length)
         batch_size = x.size(0)
+        groups = self.n_datasets * self.n_samples * self.n_nodes
 
-        # x: (batch_size, (k+1) * n, sequence_length)
-        x = x.repeat(1, self.k + 1, 1)
+        # x: (batch_size, d * k * n, sequence_length)
+        x = x.repeat(1, 1, self.n_samples, 1).reshape(batch_size, groups, -1)
 
-        # x: (batch_size, (k+1) * n * hidden_dim, sequence_length)
+        # x: (batch_size, d * k * n * hidden_dim, sequence_length)
         x = self.tcn(x)
 
-        nd = self.n * self.hidden_dim
+        nd = self.n_nodes * self.hidden_dim
 
-        """ NAVAR """
-        # contr: (batch_size, n, n, sequence_length)
-        contributions = self.contributions(x[:, :nd, :]).reshape(batch_size, self.n, self.n, -1)
-        # pred: (batch_size, n, sequence_length)
-        navar_predictions = contributions.sum(dim=1) + self.biases  # (bs, n, seq)
 
         """ Attentions """
         # x: (batch_size, k, n, (hidden_dim + n), sequence_length)
-        x = self.projection(x[:, nd:, :]).reshape(batch_size, self.k, self.n, self.n + self.hidden_dim, -1)
+        x = self.projection(x[:, nd:, :]).reshape(batch_size, self.n_samples, self.n_nodes, self.n_nodes + self.hidden_dim, -1)
 
         # attentions: (batch_size, k, n, n, sequence_length)
-        attentions = torch.softmax(x[..., :self.n, :] / temperature, dim=-2)
+        attn_scores = x[..., :self.n_nodes, :].reshape(batch_size, self.n_samples, self.n_nodes * self.n_nodes, -1)
+        attentions = torch.softmax(attn_scores / temperature, dim=-2)
+        attentions = attentions.reshape(batch_size, self.n_samples, self.n_nodes, self.n_nodes, -1)
 
         # context: (batch_size, k, n, hidden_dim, sequence_length)
-        context = x[..., self.n:, :]
+        context = x[..., self.n_nodes:, :]
 
         # x: (batch_size, k, n, hidden_dim, sequence_length)
         x = torch.einsum('bkijt, bkjdt -> bkidt', attentions, context)
 
         # x: (batch_size, k * n * hidden_dim, sequence_length)
-        x = x.reshape(batch_size, self.k * self.n * self.hidden_dim, -1)
+        x = x.reshape(batch_size, self.n_samples * self.n_nodes * self.hidden_dim, -1)
 
         # x: (batch_size, k, n, sequence_length)
-        attn_predictions = self.prediction(x).reshape(batch_size, self.k, self.n, -1)
+        attn_predictions = self.prediction(x).reshape(batch_size, self.n_samples, self.n_nodes, -1)
 
         return {
             'navar_predictions': navar_predictions,
@@ -174,9 +168,10 @@ class SimpleAttention(nn.Module):
         reg_navar = contributions.abs().mean()
 
         error_attn = ((attn_predictions - y_true.unsqueeze(1)) ** 2).mean()
-        attn_reg = (attentions * self.reg_mask).mean()
+        if self.reg_mask is not None:
+            error_attn += 0.01 * (attentions * self.reg_mask).mean()
 
-        return error_navar + 0.5 * reg_navar + error_attn + 0.05 * attn_reg
+        return error_navar + 0.5 * reg_navar + error_attn
 
 
 def train_model(model, x, y, epochs=3000, lr=1e-3, weight_decay=1e-5, disable_tqdm=False):
@@ -212,27 +207,36 @@ def train_model(model, x, y, epochs=3000, lr=1e-3, weight_decay=1e-5, disable_tq
 
 
 def print_matrices_scores(true_attentions, contributions, attentions, attentions_std, **kwargs):
-    print('\n----- NAVAR -----\n')
+    print('\n----- NAVAR -----')
     print(f'Contributions: {roc_auc_score(true_attentions, contributions)[2].item():.2f}')
-    print(contributions)
+    #print(contributions)
 
-    print('\n----- TAM -----\n')
-    print(f'Mean: {roc_auc_score(true_attentions, attentions)[2].item():.2f}')
+    max_attention = attentions.max()
+    attentions = attentions / max_attention
+    attentions_std = attentions_std / max_attention
+
+    print('\n----- TAM -----')
+    print(f'Mean           : {roc_auc_score(true_attentions, attentions)[2].item():.2f}')
     print(attentions)
     print('Std:')
     print(attentions_std)
 
-    max_ = attentions.max(dim=-1, keepdim=True).values
-    attn = attentions / max_
-    attn_std = attentions_std / max_
+    #max_ = attentions.max(dim=-1, keepdim=True).values
+    #max_ = attentions.max()
+    #attn = attentions / max_
+    #attn_std = attentions_std / max_
 
-    final1 = (attn - attn_std).clamp(min=0)
-    print(f'mean - 1x std: {roc_auc_score(true_attentions, final1)[2].item():.2f}')
-    print(final1)
+    final1 = (attentions - 0.5 * attentions_std).clamp(min=0)
+    print(f'Mean - 0.5x std: {roc_auc_score(true_attentions, final1)[2].item():.2f}')
+    #print(final1)
 
-    final2 = (attn - 2 * attn_std).clamp(min=0)
-    print(f'mean - 2x std: {roc_auc_score(true_attentions, final2)[2].item():.2f}')
-    print(final2)
+    final2 = (attentions - attentions_std).clamp(min=0)
+    print(f'Mean -   1x std: {roc_auc_score(true_attentions, final2)[2].item():.2f}')
+    #print(final2)
+
+    final3 = (attentions - 2 * attentions_std).clamp(min=0)
+    print(f'Mean -   2x std: {roc_auc_score(true_attentions, final2)[2].item():.2f}')
+    #print(final3)
 
 
 def print_matrices(contributions, attentions, attentions_std, **kwargs):
@@ -264,8 +268,8 @@ def test():
     # plt.scatter(f3(x[0, 0, :-1], x[0, 1, :-1], x[0, 2, :-1]).cpu(), y[0, 3, 1:].cpu())
     # plt.show()
 
-    model = SimpleAttention(k=40, n=x.size(1), n_layers=2, hidden_dim=32, dropout=0.1).cuda()
-    results = train_model(model, x, y, epochs=1500, lr=5e-3)
+    model = SimpleAttention(n_samples=100, n_nodes=x.size(1), n_layers=3, hidden_dim=16, dropout=0.1).cuda()
+    results = train_model(model, x, y, epochs=200, lr=5e-3)
 
     print_matrices_scores(true_attn, **results)
 
