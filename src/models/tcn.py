@@ -26,32 +26,34 @@ class TCN(nn.Module):
         weight_sharing (bool, optional): Whether to use weight sharing in the TCN (default: False).
         recurrent (bool, optional): Whether to use recurrent temporal layers (default: False).
     """
-    def __init__(self,
-                 in_channels: int,
-                 out_channels: int,
-                 hidden_dim: int,
-                 kernel_size: int,
-                 n_blocks: int = 2,
-                 n_layers_per_block: int = 2,
-                 groups: int = 1,
-                 dropout: float = 0.0,
-                 weight_sharing: bool = False,
-                 recurrent: bool = False,
-                 **kwargs):
+    def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, kernel_size: int,
+                 n_blocks: int = 2, n_layers_per_block: int = 2, groups: int = 1,
+                 dropout: float = 0.0, weight_sharing: bool = False, recurrent: bool = False,
+                 use_padding: bool = False):
         super().__init__()
 
+        # Prepare a dictionary to collect the arguments
+        config = {
+            'in_channels': in_channels,
+            'out_channels': out_channels,
+            'hidden_dim': hidden_dim,
+            'kernel_size': kernel_size,
+            'n_blocks': n_blocks,
+            'n_layers_per_block': n_layers_per_block,
+            'groups': groups,
+            'dropout': dropout,
+            'use_padding': use_padding
+        }
+
+        # Create the correct variant of the TCN based on the flags
         if weight_sharing and recurrent:
-            self.tcn = WeightSharingRecurrentTCN(in_channels, out_channels, hidden_dim, kernel_size,
-                                                 n_blocks, n_layers_per_block, groups, dropout)
+            self.tcn = WeightSharingRecurrentTCN(**config)
         elif weight_sharing:
-            self.tcn = WeightSharingTCN(in_channels, out_channels, hidden_dim, kernel_size,
-                                        n_blocks, n_layers_per_block, groups, dropout)
+            self.tcn = WeightSharingTCN(**config)
         elif recurrent:
-            self.tcn = RecurrentTCN(in_channels, out_channels, hidden_dim, kernel_size,
-                                    n_blocks, n_layers_per_block, groups, dropout)
+            self.tcn = RecurrentTCN(**config)
         else:
-            self.tcn = DefaultTCN(in_channels, out_channels, hidden_dim, kernel_size,
-                                  n_blocks, n_layers_per_block, groups, dropout)
+            self.tcn = DefaultTCN(**config)
 
         self.receptive_field = (2 ** n_blocks - 1) * n_layers_per_block * (kernel_size - 1) + 1
 
@@ -83,18 +85,9 @@ class DefaultTCN(nn.Module):
         groups (int, optional): The number of groups for each Conv1d layer (default: 1).
         dropout (float, optional): The dropout probability for each Temporal Block (default: 0.0).
     """
-    def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            hidden_dim: int,
-            kernel_size: int,
-            n_blocks: int = 2,
-            n_layers_per_block: int = 1,
-            groups: int = 1,
-            dropout: float = 0.0,
-            **kwargs
-    ):
+    def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
+                 kernel_size: int, n_blocks: int = 2, n_layers_per_block: int = 1,
+                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
         super().__init__()
         assert hidden_dim % groups == 0, "'hidden_dim' should be a multiple of 'groups'"
 
@@ -117,7 +110,8 @@ class DefaultTCN(nn.Module):
                     groups=groups,
                     n_layers=n_layers_per_block,
                     dropout=dropout,
-                    use_residual=i > 0)
+                    use_residual=i > 0,
+                    use_padding=use_padding)
             )
             modules.append(relu)
             modules.append(dropout_layer)
@@ -176,6 +170,7 @@ class RecurrentTCN(nn.Module):
         n_layers_per_block: int = 1,
         groups: int = 1,
         dropout: float = 0.0,
+        use_padding: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -193,7 +188,8 @@ class RecurrentTCN(nn.Module):
             groups=groups,
             n_layers=n_layers_per_block,
             dropout=dropout,
-            use_residual=False
+            use_residual=False,
+            use_padding=use_padding
         )
 
         # Define the recurrent block
@@ -204,7 +200,8 @@ class RecurrentTCN(nn.Module):
             dilation=1,
             groups=groups,
             n_layers=n_layers_per_block,
-            dropout=dropout
+            dropout=dropout,
+            use_padding=use_padding
         )
 
         # Define the dropout and ReLU layers
@@ -276,6 +273,7 @@ class WeightSharingTCN(nn.Module):
         n_layers_per_block: int = 1,
         groups: int = 1,
         dropout: float = 0.0,
+        use_padding: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -299,7 +297,8 @@ class WeightSharingTCN(nn.Module):
             groups=groups,
             n_layers=n_layers_per_block,
             dropout=dropout,
-            use_residual=False
+            use_residual=False,
+            use_padding=use_padding
         ), relu, dropout_layer)
 
         # Create the stack of Temporal Blocks
@@ -313,7 +312,8 @@ class WeightSharingTCN(nn.Module):
                     dilation=2 ** i,
                     groups=1,
                     n_layers=n_layers_per_block,
-                    dropout=dropout)
+                    dropout=dropout,
+                    use_padding=use_padding)
             )
             modules.append(relu)
             modules.append(dropout_layer)
@@ -389,6 +389,7 @@ class WeightSharingRecurrentTCN(nn.Module):
         n_layers_per_block: int = 1,
         groups: int = 1,
         dropout: float = 0.0,
+        use_padding: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -410,7 +411,8 @@ class WeightSharingRecurrentTCN(nn.Module):
             groups=groups,
             n_layers=n_layers_per_block,
             dropout=dropout,
-            use_residual=False
+            use_residual=False,
+            use_padding=use_padding
         )
 
         # Define the recurrent block
@@ -421,7 +423,8 @@ class WeightSharingRecurrentTCN(nn.Module):
             dilation=1,
             groups=1,
             n_layers=n_layers_per_block,
-            dropout=dropout
+            dropout=dropout,
+            use_padding=use_padding
         )
 
         # Create the final prediction layer
@@ -496,7 +499,8 @@ class TemporalBlock(nn.Module):
         groups: int = 1,
         n_layers: int = 1,
         dropout: float = 0.0,
-        use_residual=True
+        use_residual=True,
+        use_padding: bool = False
     ):
         super().__init__()
 
@@ -522,9 +526,15 @@ class TemporalBlock(nn.Module):
         ) if in_channels != out_channels and use_residual else None
 
         self.use_residual = use_residual
+        self.use_padding = use_padding
 
         for i in range(n_layers):
-            self.convolutions.append(nn.utils.weight_norm())
+            self.convolutions.append(nn.utils.weight_norm(nn.Conv1d(
+                in_channels=in_channels if i == 0 else out_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                groups=groups
+            )))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -549,17 +559,19 @@ class TemporalBlock(nn.Module):
 
         for i in range(self.n_layers - 1):
             # Apply the layer
-            x = nn.functional.pad(x, (self.dilation * (self.kernel_size - 1), 0), 'constant', 0)
+            if self.use_padding:
+                x = nn.functional.pad(x, (self.dilation * (self.kernel_size - 1), 0), 'constant', 0)
             x = self.convolutions[i](x)
             x = self.relu(x)
             x = self.dropout(x)
 
         # Do not apply relu/dropout to last layer
-        x = nn.functional.pad(x, (self.dilation * (self.kernel_size - 1), 0), 'constant', 0)
+        if self.use_padding:
+            x = nn.functional.pad(x, (self.dilation * (self.kernel_size - 1), 0), 'constant', 0)
         x = self.convolutions[-1](x)
 
         # Add residual connection to the data
         if self.use_residual:
-            return x + identity
-        else:
-            return x
+            x = x + identity
+
+        return x
