@@ -9,10 +9,11 @@ class TCN(nn.Module):
 
     The TCN class allows for easy instantiation of TCN models based on the desired configuration. It supports the
     following TCN variants:
-    - BaseTCN: The basic TCN model without weight sharing or recurrence.
-    - WSTCN (Weight Sharing TCN): TCN model with weight sharing across the temporal layers.
-    - RecTCN (Recurrent TCN): TCN model with recurrent temporal layers.
-    - WSRecTCN (Weight Sharing Recurrent TCN): TCN model with both weight sharing and recurrent temporal layers.
+
+    - DefaultTCN: The basic TCN model without weight sharing or recurrence.
+    - WeightSharingTCN: TCN model with weight sharing across the temporal layers.
+    - RecurrentTCN: TCN model with recurrent temporal layers.
+    - WeightSharingRecurrentTCN: TCN model with both weight sharing and recurrent temporal layers.
 
     Args:
         in_channels (int): Number of input channels.
@@ -25,6 +26,7 @@ class TCN(nn.Module):
         dropout (float, optional): Dropout probability for the convolutional layers (default: 0.0).
         weight_sharing (bool, optional): Whether to use weight sharing in the TCN (default: False).
         recurrent (bool, optional): Whether to use recurrent temporal layers (default: False).
+        use_padding (bool, optional): Whether to use padding in convolutional layers (default: False).
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, kernel_size: int,
                  n_blocks: int = 2, n_layers_per_block: int = 2, groups: int = 1,
@@ -74,16 +76,6 @@ class DefaultTCN(nn.Module):
     """
     A Temporal Convolutional Network (TCN) model that consists of a stack of Temporal Blocks.
     The TCN is designed to take in temporal sequences of data and produce a prediction for each time step.
-
-    Args:
-        in_channels (int): The number of input channels for the first Temporal Block.
-        out_channels (int): The number of output channels for the last Conv1d layer.
-        hidden_dim (int): The number of hidden channels for each Temporal Block.
-        kernel_size (int): The kernel size for each Temporal Block.
-        n_blocks (int, optional): The number of Temporal Blocks in the TCN (default: 1).
-        n_layers_per_block (int, optional): The number of layers in each Temporal Block (default: 1).
-        groups (int, optional): The number of groups for each Conv1d layer (default: 1).
-        dropout (float, optional): The dropout probability for each Temporal Block (default: 0.0).
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
                  kernel_size: int, n_blocks: int = 2, n_layers_per_block: int = 1,
@@ -126,19 +118,10 @@ class DefaultTCN(nn.Module):
             )
         )
 
-        self.seq = nn.Sequential(*modules)
+        self.network = nn.Sequential(*modules)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the TCN model.
-
-        Args:
-            x (torch.Tensor): The input tensor of shape (batch_size, in_channels, seq_len).
-
-        Returns:
-            torch.Tensor: The output tensor of shape (batch_size, out_channels, seq_len).
-        """
-        return self.seq(x)
+    def forward(self, x: torch.Tensor):
+        return self.network(x)
 
 
 class RecurrentTCN(nn.Module):
@@ -149,30 +132,10 @@ class RecurrentTCN(nn.Module):
 
     This version of the Rec-TCN has much fewer number of parameters compared to a general TCN when the number
     of layers is large.
-
-    Args:
-        in_channels (int): The number of input channels for the first Temporal Block.
-        out_channels (int): The number of output channels for the last Conv1d layer.
-        hidden_dim (int): The number of hidden channels for each Temporal Block.
-        kernel_size (int): The kernel size for each Temporal Block.
-        n_blocks (int, optional): The number of Recurrent Blocks in the Rec-TCN (default: 3).
-        n_layers_per_block (int, optional): The number of layers in each Temporal Block (default: 1).
-        groups (int, optional): The number of groups for each Conv1d layer (default: 1).
-        dropout (float, optional): The dropout probability for each Temporal Block (default: 0.0).
     """
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        hidden_dim: int,
-        kernel_size: int,
-        n_blocks: int = 3,
-        n_layers_per_block: int = 1,
-        groups: int = 1,
-        dropout: float = 0.0,
-        use_padding: bool = False,
-        **kwargs
-    ):
+    def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
+                 kernel_size: int, n_blocks: int = 3, n_layers_per_block: int = 1,
+                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
         super().__init__()
 
         self.n_blocks = n_blocks
@@ -217,15 +180,6 @@ class RecurrentTCN(nn.Module):
         )
 
     def forward(self, x):
-        """
-        Forward pass through the Rec-TCN model.
-
-        Args:
-            x (torch.Tensor): The input tensor of shape (batch_size, in_channels, seq_len).
-
-        Returns:
-            torch.Tensor: The output tensor of shape (batch_size, out_channels, seq_len).
-        """
         # Pass input tensor through the first TCN block
         x = self.first_block(x)
         x = self.relu(x)
@@ -250,32 +204,10 @@ class WeightSharingTCN(nn.Module):
     A Weight Sharing Temporal Convolutional Network (WS-TCN) implementation. Weight sharing reduces
     the number of parameters and makes the model more efficient. Positional encoding provides information
     about the position of each element in the input sequence. Recurrent option can be used for even less parameters.
-
-    Args:
-    - in_channels (int): Number of input channels.
-    - out_channels (int): Number of output channels.
-    - hidden_dim (int): Hidden dimension of the model.
-    - kernel_size (int): Kernel size for the convolutional layers.
-    - max_sequence_length (int): Maximum length of the input sequence.
-    - n_blocks (int): Number of blocks in the TCN.
-    - n_layers_per_block (int): Number of layers per block in the TCN.
-    - groups (int): Number of groups to use for weight sharing.
-    - dropout (float): Dropout probability for the convolutional layers.
-    - use_recurrent (bool): Whether to use a recurrent TCN.
     """
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        hidden_dim: int,
-        kernel_size: int,
-        n_blocks: int = 3,
-        n_layers_per_block: int = 1,
-        groups: int = 1,
-        dropout: float = 0.0,
-        use_padding: bool = False,
-        **kwargs
-    ):
+    def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
+                 kernel_size: int, n_blocks: int = 3, n_layers_per_block: int = 1,
+                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
         super().__init__()
 
         assert hidden_dim % groups == 0, "The hidden dimension must be divisible by the number of groups"
@@ -328,17 +260,7 @@ class WeightSharingTCN(nn.Module):
                 groups=groups
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass of the WS-TCN.
-
-        Args:
-        - x (torch.Tensor): The input tensor with shape (batch_size, in_channels, seq_length).
-
-        Returns:
-        - torch.Tensor: The output tensor of the WS-TCN with shape (batch_size, out_channels, seq_length).
-        """
-
+    def forward(self, x: torch.Tensor):
         batch_size, _, seq_length = x.size()
 
         x = self.first_block(x)  # (batch_size, hidden_dim, seq_len)
@@ -368,30 +290,10 @@ class WeightSharingRecurrentTCN(nn.Module):
 
     This version of the Rec-TCN has much fewer number of parameters compared to a general TCN when the number
     of layers is large.
-
-    Args:
-        in_channels (int): The number of input channels for the first Temporal Block.
-        out_channels (int): The number of output channels for the last Conv1d layer.
-        hidden_dim (int): The number of hidden channels for each Temporal Block.
-        kernel_size (int): The kernel size for each Temporal Block.
-        n_blocks (int, optional): The number of Recurrent Blocks in the Rec-TCN (default: 3).
-        n_layers_per_block (int, optional): The number of layers in each Temporal Block (default: 1).
-        groups (int, optional): The number of groups for each Conv1d layer (default: 1).
-        dropout (float, optional): The dropout probability for each Temporal Block (default: 0.0).
     """
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        hidden_dim: int,
-        kernel_size: int,
-        n_blocks: int = 3,
-        n_layers_per_block: int = 1,
-        groups: int = 1,
-        dropout: float = 0.0,
-        use_padding: bool = False,
-        **kwargs
-    ):
+    def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
+                 kernel_size: int, n_blocks: int = 3, n_layers_per_block: int = 1,
+                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
         super().__init__()
         assert n_blocks >= 3, 'if n_blocks is smaller than 3, please use a regular WS-TCN'
         self.groups = groups
@@ -436,15 +338,6 @@ class WeightSharingRecurrentTCN(nn.Module):
         )
 
     def forward(self, x):
-        """
-        Forward pass through the Rec-TCN model.
-
-        Args:
-            x (torch.Tensor): The input tensor of shape (batch_size, in_channels, seq_len).
-
-        Returns:
-            torch.Tensor: The output tensor of shape (batch_size, out_channels, seq_len).
-        """
         batch_size, _, seq_length = x.size()
 
         # Pass input tensor through the first TCN block
@@ -489,19 +382,11 @@ class TemporalBlock(nn.Module):
         groups (int, optional): Number of groups to split the input and output channels into (default: 1).
         n_layers (int, optional): Number of convolutional layers in the block (default: 1).
         dropout (float, optional): Dropout rate to use between layers (default: 0.0).
+        use_padding (bool, optional): Whether to use padding in convolutional layers (default: False).
     """
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        kernel_size: int,
-        dilation: int = 1,
-        groups: int = 1,
-        n_layers: int = 1,
-        dropout: float = 0.0,
-        use_residual=True,
-        use_padding: bool = False
-    ):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int,
+                 dilation: int = 1, groups: int = 1, n_layers: int = 1, dropout: float = 0.0,
+                 use_residual=True, use_padding: bool = False):
         super().__init__()
 
         assert n_layers > 0, "Number of layers should be 1 or greater."
