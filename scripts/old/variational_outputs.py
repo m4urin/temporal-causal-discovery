@@ -1,6 +1,6 @@
 from matplotlib import pyplot as plt
 
-from config import DEVICE
+from environment import DEVICE
 from src.data.timeseries_data import toy_data_5_nodes_variational
 from src.models.implementations.navar_variational import NAVAR_Variational
 from src.experiments.train_model import train_model

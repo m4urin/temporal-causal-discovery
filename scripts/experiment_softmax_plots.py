@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 
-from config import OUTPUT_DIR
+from environment import OUTPUT_DIR
 from src.data.generate_toy_data import construct_temporal_causal_data
 from src.data.temporal_causal_data import TemporalCausalData
 from src.experiments.train_model import train_model

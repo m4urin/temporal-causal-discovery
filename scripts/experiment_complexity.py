@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from config import OUTPUT_DIR
+from environment import OUTPUT_DIR
 from src.training.train_model import train_model
 from src.utils import load_synthetic_data, ConsoleProgressBar
 

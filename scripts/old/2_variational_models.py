@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 
-from config import OUTPUT_DIR
+from environment import OUTPUT_DIR
 from src.data.toy_data.toy_data_6_nodes_non_additive import toy_data_6_nodes_non_additive
 from src.experiments.run_experiment import run_experiment
 from tests.old.temporal_causal_model import TemporalCausalModel

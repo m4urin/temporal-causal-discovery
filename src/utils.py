@@ -9,7 +9,7 @@ import random
 import time
 import warnings
 import zipfile
-from typing import Union, Iterable
+from typing import Union, Iterable, Optional
 
 import matplotlib.pyplot as plt
 import mlflow
@@ -25,7 +25,7 @@ from torch import nn
 from torch.optim import lr_scheduler
 from tqdm import trange
 
-from config import DATA_DIR, OUTPUT_DIR, TRACKING_URI
+from config import DATA_DIR, OUTPUT_DIR, TRACKING_URI, Dataset
 
 
 # --------- TCN ---------
@@ -110,12 +110,13 @@ def load_synthetic_data(name: str):
     data = torch.load(pt_file)
     os.remove(pt_file)
 
-    return preprocess_data(
+    return normalize_dataset(Dataset(
+        data_dir='synthetic',
         name=name,
         data=data['data'].unsqueeze(0),
         data_mean=data['data_mean'].unsqueeze(0),
         ground_truth=data['ground_truth'].unsqueeze(0).float()
-    )
+    ))
 
 
 def load_causeme_data(name: str):
@@ -126,20 +127,19 @@ def load_causeme_data(name: str):
         data = np.stack([np.loadtxt(f.open(name)) for name in sorted(f.namelist())])
 
     data = torch.from_numpy(data).float().transpose(-1, -2).unsqueeze(dim=1)
-    return preprocess_data(name=name, data=data)
+
+    return normalize_dataset(Dataset('causeme', name, data))
 
 
-def preprocess_data(name, data, data_mean=None, ground_truth=None):
-    """ Preprocess data by normalizing and optional preprocessing of mean and ground truth. """
-    means = data.mean(dim=-1, keepdim=True)
-    stds = data.std(dim=-1, keepdim=True)
-    data = (data - means) / stds
-    result = {'name': name, 'data': data}
-    if data_mean is not None:
-        result['data_mean'] = (data_mean - means) / stds
-    if ground_truth is not None:
-        result['ground_truth'] = ground_truth
-    return result
+def normalize_dataset(dataset: Dataset) -> Dataset:
+    means = dataset.data.mean(dim=-1, keepdim=True)
+    stds = dataset.data.std(dim=-1, keepdim=True)
+
+    dataset.data = (dataset.data - means) / stds
+    if dataset.data_mean is not None:
+        dataset.data_mean = (dataset.data_mean - means) / stds
+
+    return dataset
 
 
 def write_causeme_predictions(model, dataset_name, scores, **parameter_values):

@@ -21,13 +21,12 @@ default_space = {
     'lambda1': 0.2,
     'n_heads': 4,
     'softmax_method': 'softmax',
-    'start_coeff': -3,
-    'delta_coeff': 2,  # coeff moves from 10^-3 to 10^-1,
     'recurrent': False,
     'aleatoric': False,
     'epistemic': False,
     'weight_sharing': False
 }
+
 
 hyperopt_space = {
     'hidden_dim': hp_pow('hidden_dim', 3, 7, base=2),  # 2^4, .. 2^7
