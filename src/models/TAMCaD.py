@@ -91,7 +91,7 @@ class TAMCaD(nn.Module):
 
     def loss_function(self, y_true, prediction, attentions):
         # Mean squared error loss
-        loss = nn.functional.mse_loss(prediction, y_true.unsqueeze(2))
+        loss = nn.functional.mse_loss(prediction, y_true)
 
         if self.tamcad.instantaneous and self.lambda1:
             n = self.n_variables

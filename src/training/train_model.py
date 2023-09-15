@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from torch.optim import AdamW
 from tqdm import trange
 
-from config import GPULAB_JOB_ID, OUTPUT_DIR
+from environment import GPULAB_JOB_ID, OUTPUT_DIR
 from src.data.visualisations import plot_multi_roc_curve, plot_heatmaps, plot_contemporaneous_relationships
 from src.models.navar import NAVAR
 from src.models.TAMCaD import TAMCaD
