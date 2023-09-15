@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 
-from config import RESULTS_DIR
+from config import OUTPUT_DIR
 from src.data.generate_toy_data import construct_random
 from src.data.toy_data.toy_data_6_nodes_non_additive import toy_data_6_nodes_non_additive
 from src.eval.soft_roc_auc import calculate_AUROC
@@ -50,8 +50,8 @@ def run(experiment_name, dataset):
 
 
 if __name__ == '__main__':
-    path_causal = os.path.join(RESULTS_DIR, "experiments/1_model_complexity/causal")
-    path_random = os.path.join(RESULTS_DIR, "experiments/1_model_complexity/random")
+    path_causal = os.path.join(OUTPUT_DIR, "experiments/1_model_complexity/causal")
+    path_random = os.path.join(OUTPUT_DIR, "experiments/1_model_complexity/random")
     os.makedirs(path_causal, exist_ok=True)
     os.makedirs(path_random, exist_ok=True)
 
@@ -77,7 +77,7 @@ if __name__ == '__main__':
                              limit=(0, 1.25),
                              y_labels=['Train loss'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/1_model_complexity/causal_vs_random.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/1_model_complexity/causal_vs_random.svg")
                              )
 
     train_losses_true = [interpolate_array(r.train_result.train_losses_true, n=r.train_result.test_every) for r in causal_results]
@@ -91,7 +91,7 @@ if __name__ == '__main__':
                              limit=(0, 0.85),
                              y_labels=['Loss'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/1_model_complexity/train_vs_test.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/1_model_complexity/train_vs_test.svg")
                              )
 
     true_causal_matrix = causal_data.causal_graph.causal_matrix.sum(dim=-1).bool().float().numpy()
@@ -105,10 +105,10 @@ if __name__ == '__main__':
         scores=[score for score, _, _, _ in auroc],
         names=["TCN", "Rec-TCN", "WS-TCN", "WS-Rec-TCN"],
         view=False,
-        path=os.path.join(RESULTS_DIR, "experiments/1_model_complexity/roc.svg"))
+        path=os.path.join(OUTPUT_DIR, "experiments/1_model_complexity/roc.svg"))
     for n, score in zip(["TCN", "Rec-TCN", "WS-TCN", "WS-Rec-TCN"], auroc):
         print(f"{n}: {round(score[0], 2)}")
 
     plot_heatmap(true_causal_matrix, pred_causal_matrix, view=True,
                  names=["TCN", "Rec-TCN", "WS-TCN", "WS-Rec-TCN"],
-                 path=os.path.join(RESULTS_DIR, "experiments/1_model_complexity/causal_matrix.svg"))
+                 path=os.path.join(OUTPUT_DIR, "experiments/1_model_complexity/causal_matrix.svg"))

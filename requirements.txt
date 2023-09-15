@@ -10,3 +10,4 @@ pandas
 tqdm
 hyperopt
 scikit-learn
+mlflow

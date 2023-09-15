@@ -1,350 +1,357 @@
 import torch
 from torch import nn
 
-from src.models.tcn import TCN
-from src.models.attention_scoring_functions import get_softmax_method
-from src.models.losses import TAMCaD_regularization_loss, DER_loss, NLL_loss
-from src.utils import count_parameters, weighted_mean
+from src.training.result import Result
+from src.models.modules.TCN import TCN
 
 
 class TAMCaD(nn.Module):
-    def __init__(self, n_variables, hidden_dim, architecture, n_heads, softmax_method, dropout,
-                 weight_sharing, recurrent, aleatoric, epistemic, **kwargs):
-        super().__init__()
-        kernel_size = architecture['kernel_size']
-        n_blocks = architecture['n_blocks']
-        n_layers_per_block = architecture['n_layers_per_block']
+    """
+    Implements the Temporal Attention Mechanism for Causal Discovery (TAMCaD) model.
 
-        if epistemic:
-            self.tamcad = TAMCaD_Epistemic(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block, n_heads,
-                                           softmax_method, dropout, weight_sharing, recurrent)
-        elif aleatoric:
-            self.tamcad = TAMCaD_Aleatoric(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block, n_heads,
-                                           softmax_method, dropout, weight_sharing, recurrent)
+    Args:
+        n_datasets (int): The number of datasets or time series sequences in the input.
+        n_samples (int): The number of models to train for each dataset.
+        n_variables (int): The number of variables in the multi-variate timeseries.
+        hidden_dim (int): The dimension of the hidden state in the TAMCaD model.
+        lambda1 (float): A hyperparameter controlling the regularization strength.
+        beta (float): A hyperparameter controlling the regularization strength.
+        dot_product (bool): A flag indicating whether to use dot product attention.
+        **kwargs: Additional keyword arguments for the underlying :class:`src.models.tcn.TCN` architecture.
+    """
+
+    def __init__(self, n_datasets, n_samples, n_variables, hidden_dim, lambda1, beta, n_heads=None, **kwargs):
+        super().__init__()
+        self.n_datasets = n_datasets
+        self.n_samples = n_samples
+        self.n_variables = n_variables
+        self.group_shape = (n_datasets, n_samples, n_variables)
+
+        self.lambda1 = lambda1
+        self.beta = beta
+
+        config = {"k": n_datasets * n_samples, "n_variables": n_variables, "hidden_dim": hidden_dim}
+
+        if n_heads:
+            self.tamcad = ScaledDotProductTAMCaD(**config, **kwargs, n_heads=n_heads)
         else:
-            self.tamcad = TAMCaD_Default(n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block, n_heads,
-                                         softmax_method, dropout, weight_sharing, recurrent)
+            self.tamcad = SimpleTAMCaD(**config, **kwargs)
 
-        self.receptive_field = (2 ** n_blocks - 1) * n_layers_per_block * (kernel_size - 1) + 1
-        self.n_params = count_parameters(self)
+        reg_mask = None
+        if beta and n_samples > 1:
+            n_var_instant = 2 * n_variables if self.tamcad.instantaneous else n_variables
+            reg_mask = torch.rand(n_samples, n_variables, n_var_instant, 1) < 0.5
+        self.register_buffer("reg_mask", reg_mask)
 
-    def forward(self, x):
-        return self.tamcad(x)
+        self.convert_instant = ConvertInstant(n_variables) if self.tamcad.instantaneous else None
 
-    def loss_function(self, y_true, **kwargs):
-        return self.tamcad.loss_function(y_true, **kwargs)
-
-    def analysis(self, **kwargs):
-        mode = self.training
-        self.eval()
-        with torch.no_grad():
-            result = self.tamcad.analysis(**kwargs)
-            #result = {k: v.cpu().numpy() for k, v in result.items()}
-        self.train(mode)
-        return result
-
-
-class TAMCaD_Default(nn.Module):
-    def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
-                 n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
-        super().__init__()
-        self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
-            in_channels=3 * n_variables,
-            out_channels=n_variables,
-            hidden_dim=n_variables * hidden_dim,
-            groups=n_variables,
-            kernel_size=kernel_size,
-            n_blocks=n_blocks,
-            n_layers_per_block=n_layers_per_block,
-            n_heads=n_heads,
-            softmax_method=softmax_method,
-            weight_sharing=weight_sharing,
-            recurrent=recurrent,
-            dropout=dropout
+        groups = n_datasets * n_samples * n_variables
+        self.prediction = nn.Sequential(
+            nn.Conv1d(in_channels=groups * hidden_dim,
+                      out_channels=groups * hidden_dim // 2,
+                      kernel_size=1, groups=groups),
+            nn.ReLU(),
+            nn.Conv1d(in_channels=groups * hidden_dim // 2,
+                      out_channels=groups,
+                      kernel_size=1, groups=groups)
         )
 
-    def forward(self, x):
-        prediction, attentions = self.attention_mechanism(x)
+    def forward(self, x, temperature=1.0):
+        """
+        Perform a forward pass through the attention module.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, n_datasets, n_samples, n_var, sequence_length).
+            temperature (float): softmax temperature
+
+        Returns:
+            embeddings (torch.Tensor): Prediction of size (batch_size, k * n_var * dim, sequence_length).
+            attentions (torch.Tensor): Attention weights of size (batch_size, k, n_var, n_var, sequence_length).
+        """
+        batch_size, _, _, _, sequence_length = x.size()
+
+        # (batch_size, n_datasets * n_samples * n_var, sequence_length)
+        x = x.reshape(batch_size, -1, sequence_length)
+
+        # context: (batch_size, n_datasets * n_samples * n_var * dim, sequence_length)
+        # attentions: (batch_size, n_datasets * n_samples, n_var, (2*) n_var, sequence_length)
+        # prediction: (batch_size, n_datasets * n_samples * n_var, sequence_length)
+        context, attentions = self.tamcad(x, temperature=temperature)
+        prediction = self.prediction(context)
+
+        # attentions: (batch_size, n_datasets, n_samples, n_var, (2*) n_var, sequence_length)
+        # prediction: (batch_size, n_datasets, n_samples, n_var, sequence_length)
+        attentions = attentions.reshape(batch_size, *self.group_shape, -1, sequence_length)
+        prediction = prediction.reshape(batch_size, *self.group_shape, sequence_length)
+
         return {
             'prediction': prediction,
             'attentions': attentions
         }
 
-    @staticmethod
-    def analysis(prediction, attentions):
-        temp_causal_matrix, temp_external_causal_matrix = instant_attentions_to_causal_matrix(attentions)
-        return {
-            'prediction': prediction,
-            'attentions': attentions,  # (batch_size, n_heads, n, 2*n, T)
-            'default_causal_matrix': temp_causal_matrix.mean(dim=-1),
-            'default_external_causal_matrix': temp_external_causal_matrix.mean(dim=-1),
-            'temp_causal_matrix': temp_causal_matrix,
-            'temp_external_causal_matrix': temp_external_causal_matrix,
-        }
-
-    @staticmethod
-    def loss_function(y_true, prediction, attentions, lambda1, coeff):
+    def loss_function(self, y_true, prediction, attentions):
         # Mean squared error loss
-        error = nn.functional.mse_loss(prediction, y_true)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
-        return error + regularization
+        loss = nn.functional.mse_loss(prediction, y_true.unsqueeze(2))
 
+        if self.tamcad.instantaneous and self.lambda1:
+            n = self.n_variables
+            loss = loss + self.lambda1 * attentions[..., range(n), range(n, 2 * n), :].mean()
 
-class TAMCaD_Aleatoric(nn.Module):
-    def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
-                 n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
-        super().__init__()
-        self.n = n_variables
-        self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
-            in_channels=3 * n_variables,
-            out_channels=n_variables,
-            hidden_dim=n_variables * hidden_dim,
-            groups=n_variables,
-            kernel_size=kernel_size,
-            n_blocks=n_blocks,
-            n_layers_per_block=n_layers_per_block,
-            n_heads=n_heads,
-            softmax_method=softmax_method,
-            weight_sharing=weight_sharing,
-            recurrent=recurrent,
-            dropout=dropout
-        )
-        # TCN to learn aleatoric uncertainty
-        self.aleatoric = TCN(
-            in_channels=3 * n_variables,
-            out_channels=n_variables,
-            hidden_dim=2 * hidden_dim,
-            kernel_size=kernel_size,
-            n_blocks=n_blocks,
-            n_layers_per_block=n_layers_per_block,
-            groups=1,
-            dropout=dropout,
-            weight_sharing=weight_sharing,
-            recurrent=recurrent
+        if self.reg_mask is not None:
+            loss = loss + self.beta * torch.masked_fill(attentions, mask=self.reg_mask, value=0).mean()
+
+        return loss
+
+    def analysis(self, prediction, attentions):
+        """
+        prediction: (batch_size, n_datasets, n_samples, n, T)
+        attentions: (batch_size, n_datasets, n_samples, n, (2*)n, T)
+        context: (batch_size, n_datasets, n_samples, n, dim, T)
+        """
+        if self.convert_instant is not None:
+            # attentions: (batch_size, n_datasets, n_samples, n, n, T)
+            attentions = self.convert_instant(attentions)
+        attentions_mean = attentions.mean(dim=-1)  # (batch_size, n_datasets, n_samples, n, n)
+        return Result(
+            prediction=prediction.mean(dim=2),  # (batch_size, n_datasets, n, T)
+            causal_matrix=attentions_mean.mean(dim=2),  # (batch_size, n_datasets, n, n)
+            causal_matrix_std=attentions_mean.std(dim=2),  # (batch_size, n_datasets, n, n)
+            temporal_causal_matrix=attentions.mean(dim=2),  # (batch_size, n_datasets, n, n, T)
+            temporal_causal_matrix_std=attentions.std(dim=2)  # (batch_size, n_datasets, n, n, T)
         )
 
-    def forward(self, x):
-        batch_size, _, sequence_length = x.size()
-        prediction, attentions = self.attention_mechanism(x)
-        log_var_aleatoric = self.aleatoric(x)
-        return {
-            'prediction': prediction,
-            'attentions': attentions,
-            'log_var_aleatoric': log_var_aleatoric
-        }
 
-    @staticmethod
-    def analysis(prediction, attentions, log_var_aleatoric):
-        temp_causal_matrix, temp_external_causal_matrix = instant_attentions_to_causal_matrix(attentions)
-        return {
-            'prediction': prediction,
-            'attentions': attentions,  # (batch_size, n_heads, n, 2*n, T)
-            'aleatoric': torch.exp(0.5 * log_var_aleatoric),
-            'default_causal_matrix': temp_causal_matrix.mean(dim=-1),
-            'default_external_causal_matrix': temp_external_causal_matrix.mean(dim=-1),
-            'temp_causal_matrix': temp_causal_matrix,
-            'temp_external_causal_matrix': temp_external_causal_matrix,
-        }
-
-    @staticmethod
-    def loss_function(y_true, prediction, attentions, log_var_aleatoric, lambda1, coeff):
-        aleatoric_loss = NLL_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
-        return aleatoric_loss + regularization
-
-
-class TAMCaD_Epistemic(nn.Module):
-    def __init__(self, n_variables, hidden_dim, kernel_size, n_blocks, n_layers_per_block,
-                 n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
+class SimpleTAMCaD(nn.Module):
+    def __init__(self, k, n_variables, hidden_dim, softmax_method, instantaneous, **kwargs):
         super().__init__()
-        self.attention_mechanism = TemporalInstantaneousAttentionMechanism(
-            in_channels=3 * n_variables,
-            out_channels=3 * n_variables,
-            hidden_dim=n_variables * hidden_dim,
-            groups=n_variables,
-            kernel_size=kernel_size,
-            n_blocks=n_blocks,
-            n_layers_per_block=n_layers_per_block,
-            n_heads=n_heads,
-            softmax_method=softmax_method,
-            weight_sharing=weight_sharing,
-            recurrent=recurrent,
-            dropout=dropout
-        )
-
-    def forward(self, x):
-        batch_size, _, sequence_length = x.size()
-        x, attentions = self.attention_mechanism(x)
-        n = attentions.size(2)
-        x = x.reshape(batch_size, n, 3, sequence_length)
-        prediction, log_v, log_beta = x.unbind(dim=2)
-        log_var_aleatoric = log_beta - log_v
-        return {
-            'prediction': prediction,
-            'attentions': attentions,
-            'log_var_aleatoric': log_var_aleatoric,
-            'log_v': log_v
-        }
-
-    @staticmethod
-    def analysis(prediction, attentions, log_var_aleatoric, log_v):
-        epistemic = torch.exp(-0.5 * log_v)
-
-        # (bs, n, n, sequence_length)
-        temp_confidence_matrix = epistemic.unsqueeze(2).expand(-1, -1, epistemic.size(1), -1)
-
-        temp_causal_matrix, temp_external_causal_matrix = instant_attentions_to_causal_matrix(attentions)
-        default_causal_matrix = weighted_mean(temp_causal_matrix, temp_confidence_matrix, dim=-1)  # (bs, n, n)
-
-        return {
-            'prediction': prediction,
-            'attentions': attentions,  # (batch_size, n_heads, n, 2*n, T)
-            'aleatoric': torch.exp(0.5 * log_var_aleatoric),
-            'epistemic': epistemic,
-            'default_causal_matrix': default_causal_matrix,
-            'default_external_causal_matrix': temp_external_causal_matrix.mean(dim=-1),
-            'default_confidence_matrix': temp_confidence_matrix.mean(dim=-1),
-            'temp_causal_matrix': temp_causal_matrix,
-            'temp_external_causal_matrix': temp_external_causal_matrix,
-            'temp_confidence_matrix': temp_confidence_matrix
-        }
-
-    @staticmethod
-    def loss_function(y_true, prediction, attentions, log_var_aleatoric, log_v, lambda1, coeff):
-        epistemic_loss = DER_loss(y_true=y_true, y_pred=prediction, log_var=log_var_aleatoric, log_v=log_v, coeff=coeff)
-        regularization = TAMCaD_regularization_loss(attentions, lambda1=lambda1)
-        return epistemic_loss + regularization
-
-
-class TemporalInstantaneousAttentionMechanism(nn.Module):
-    def __init__(self, in_channels, out_channels, hidden_dim, groups, kernel_size, n_blocks, n_layers_per_block,
-                 n_heads=1, softmax_method='softmax', dropout=0.0, weight_sharing=False, recurrent=False):
-        super().__init__()
-        self.n_heads = n_heads
-        self.groups = groups
-
-        self.softmax_method = get_softmax_method(softmax_method)
+        self.k = k
+        self.n_variables = n_variables
+        self.hidden_dim = hidden_dim
+        self.instantaneous = instantaneous
 
         # Padding for instantaneous prediction
-        self.pad = nn.ConstantPad1d((0, 1), 0)
+        self.pad = nn.ConstantPad1d((0, 1), 0) if instantaneous else None
 
-        # TCN to learn qkv projections
-        self.qkv = TCN(
-            in_channels=in_channels,
-            hidden_dim=hidden_dim,
-            out_channels=3 * hidden_dim,  # q, k and v
-            kernel_size=kernel_size,
-            n_blocks=n_blocks,
-            n_layers_per_block=n_layers_per_block,
-            groups=groups,
-            dropout=dropout,
-            weight_sharing=weight_sharing,
-            recurrent=recurrent
-        )
-        self.fc1 = nn.Conv1d(in_channels=hidden_dim, out_channels=out_channels, kernel_size=1, groups=groups)
+        # TCN to learn the projections
+        groups = k * n_variables
+        channels = groups * (hidden_dim + n_variables)
+        if instantaneous:
+            channels *= 2
+        self.tcn = TCN(**kwargs, hidden_dim=groups * hidden_dim, out_channels=channels, groups=groups)
 
-    def forward(self, x):
+        self.attention_mechanism = SimpleAttention(softmax_method)
+
+    def forward(self, x, temperature=1.0):
         """
         Perform a forward pass through the attention module.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, groups * dim, sequence_length).
+            x (torch.Tensor): Input tensor of shape (batch_size, k * n_var * dim, sequence_length).
+            temperature (float): softmax temperature
 
         Returns:
-            prediction (torch.Tensor): Prediction of size (batch_size, out_channels, sequence_length)
-            attentions (torch.Tensor): Attention weights of size
-                                      (batch_size, num_heads, groups, 2*groups, sequence_length)
+            embeddings (torch.Tensor): Prediction of size (batch_size, k * n_var * dim, sequence_length).
+            attentions (torch.Tensor): Attention weights of size (batch_size, k, n_var, n_var, sequence_length).
         """
         batch_size, _, sequence_length = x.size()
 
-        x = self.pad(x)
-
-        # Apply qkv convolution and reshape: (batch_size, groups, dim, 3, sequence_length + 1)
-        x = self.qkv(x).reshape(batch_size, self.groups, -1, 3, sequence_length + 1)
-
-        # Split q, k, and v tensors: (batch_size, (2*) groups, dim, sequence_length)
-        q = x[..., 0, :-1]
-        k = torch.cat((x[..., 1, :-1], x[..., 1, 1:]), dim=1)
-        v = torch.cat((x[..., 2, :-1], x[..., 2, 1:]), dim=1)
+        if self.instantaneous:
+            x = self.pad(x)
+            # Apply qkv convolution and reshape: (batch_size * k, 2, n_var + hidden_dim, sequence_length + 1)
+            x = self.tcn(x).reshape(-1, 2, self.n_variables + self.hidden_dim, sequence_length + 1)
+            # (batch_size * k, n_var + hidden_dim, sequence_length)
+            x, x_instant = x[:, 0, :, :-1], x[:, 1, :, 1:]
+        else:
+            # Apply qkv convolution and reshape: (batch_size * groups, n_var + hidden_dim, sequence_length)
+            x = self.tcn(x).reshape(-1, self.n_variables + self.hidden_dim, sequence_length)
+            x_instant = None
 
         # Calculate attention and predictions:
-        attentions, x = instantaneous_dot_product(q, k, v, self.n_heads, self.softmax_method)
-        prediction = self.fc1(x)
+        x, attentions = self.attention_mechanism(x, x_instant, temperature=temperature)
 
-        return prediction, attentions
+        x = x.reshape(batch_size, -1, sequence_length)
+        attentions = attentions.reshape(batch_size, self.k, self.n_variables, self.n_variables, sequence_length)
 
-
-def instant_attentions_to_causal_matrix(attentions):
-    """
-    Convert instantaneous attention scores a causal matrix.
-
-    Args:
-        attentions (torch.Tensor): Attention scores of shape (batch_size, n_heads, n, 2*n, T),
-                                  where n is the number of variables and T is the sequence length.
-
-    Returns:
-        torch.Tensor: Causal matrix representing internal dependencies with shape (batch_size, n, n, T).
-        torch.Tensor: External causal matrix representing external dependencies with shape (batch_size, n, 1, T).
-    """
-    # Extract the number of nodes/steps from the input attentions
-    n = attentions.size(2)
-
-    # Compute mean attentions over the heads and split them into two parts: the causal matrix at t+0 and at t+1
-    attn0, attn1 = attentions.mean(dim=1).chunk(2, dim=2)
-
-    # Create an external causal matrix from the self attentions of t+1
-    temp_external_causal_matrix = attn1[:, range(n), range(n), None].clone()
-
-    # Set attentions to future self to 0 (causal masking)
-    attn1[:, range(n), range(n)] = 0
-
-    # Average the matrices to create the causal matrix
-    temp_causal_matrix = (attn0 + attn1) / 2
-
-    return temp_causal_matrix, temp_external_causal_matrix
+        return x, attentions
 
 
-def instantaneous_dot_product(q, k, v, n_heads, softmax_method: nn.Module, mask=None):
-    """
-    Perform scaled dot-product attention for temporal instantaneous attention.
+class SimpleAttention(nn.Module):
+    def __init__(self, softmax_method: str, mask=None):
+        super().__init__()
+        self.mask = mask
+        self.softmax_method = get_attention_activation(softmax_method)
 
-    Args:
-        q (torch.Tensor): Query tensor of shape (batch_size, groups, hidden_dim, sequence_length).
-        k (torch.Tensor): Key tensor of shape (batch_size, 2 * groups, hidden_dim, sequence_length).
-        v (torch.Tensor): Value tensor of shape (batch_size, 2 * groups, hidden_dim, sequence_length).
-        n_heads (int): Number of attention heads.
-        softmax_method (function): Softmax method for attention calculation.
-        mask (torch.Tensor): Mask for masking out certain positions (optional).
+    def forward(self, x, x_instant=None, temperature=1.0):
+        """
+        Perform scaled dot-product attention for temporal instantaneous attention.
 
-    Returns:
-        torch.Tensor: Attention weights.
-        torch.Tensor: Output tensor after attention calculation.
-    """
-    batch_size, groups, hidden_dim, sequence_length = q.size()
-    d_k = hidden_dim // n_heads
+        Args:
+            x (torch.Tensor): Context tensor of shape (batch_size, n_var, (hidden_dim + n_var), sequence_length).
+            x_instant (torch.Tensor): Context tensor of shape (batch_size, n_var, (hidden_dim + n_var), sequence_length).
+            temperature (float): softmax temperature
 
-    # Reshape q, k, and v tensors
-    q = q.reshape(batch_size, groups, n_heads, d_k, sequence_length).permute(0, 2, 4, 1, 3)
-    k = k.reshape(batch_size, 2 * groups, n_heads, d_k, sequence_length).permute(0, 2, 4, 3, 1)
-    v = v.reshape(batch_size, 2 * groups, n_heads, d_k, sequence_length).permute(0, 2, 4, 1, 3)
+        Returns:
+            torch.Tensor: Output tensor after attention calculation of size (batch_size, n_var * hidden_dim, sequence_length).
+            torch.Tensor: Attention weights of size (batch_size, n_var, n_var, sequence_length).
+        """
+        batch_size, n_var, _, sequence_length = x.size()
 
-    # Calculate attention scores: (batch_size, num_heads, sequence_length, groups, 2 * groups)
-    attention_logits = torch.matmul(q, k) * (d_k ** -0.5)
+        # (batch_size, n_var, hidden_dim, sequence_length), (batch_size, n_var, n_var, sequence_length)
+        context, attentions = x[..., n_var:, :], x[..., :n_var, :]
 
-    # Apply masking if provided
-    if mask is not None:
-        attention_logits = attention_logits.masked_fill(mask == 0, -1e9)
+        if x_instant is not None:
+            # (batch_size, n_var, hidden_dim, sequence_length), (batch_size, n_var, n_var, sequence_length)
+            context_instant, attentions_instant = x_instant[..., n_var:, :], x_instant[..., :n_var, :]
+            context = torch.cat((context, context_instant), dim=1)
+            attentions = torch.cat((attentions, attentions_instant), dim=2)
 
-    # Calculate attention weights: (batch_size, num_heads, sequence_length, groups, 2 * groups)
-    attentions = softmax_method(attention_logits)
+        # Apply masking if provided
+        if self.mask is not None:
+            attentions = attentions.masked_fill(self.mask == 0, -1e9)
 
-    # Calculate output projection: (batch_size, num_heads, sequence_length, groups, dk)
-    output_projection = torch.matmul(attentions, v)
+        attentions = self.softmax_method(attentions / temperature, dim=2)
 
-    # Rearrange: (batch_size, num_heads, groups, 2 * groups, sequence_length)
-    attentions = attentions.permute(0, 1, 3, 4, 2)
+        # x: (batch_size, n_var * hidden_dim, sequence_length)
+        x = torch.einsum('bijt, bjdt -> bidt', attentions, context).reshape(batch_size, -1, sequence_length)
 
-    # Permute to original form and concatenate heads: (batch_size, groups * hidden_dim, sequence_length)
-    output_projection = output_projection.permute(0, 3, 1, 4, 2).reshape(batch_size, -1, sequence_length)
+        # attentions: (batch_size, n_var, (2*) n_var, sequence_length)
+        attentions = attentions.reshape(batch_size, n_var, -1, sequence_length)
 
-    return attentions, output_projection
+        return x, attentions
+
+
+class ScaledDotProductTAMCaD(nn.Module):
+    def __init__(self, k, n_variables, hidden_dim, softmax_method, n_heads, instantaneous, **kwargs):
+        super().__init__()
+        self.k = k
+        self.n_variables = n_variables
+        self.hidden_dim = hidden_dim
+        self.instantaneous = instantaneous
+
+        # Padding for instantaneous prediction
+        self.pad = nn.ConstantPad1d((0, 1), 0) if instantaneous else None
+
+        # TCN to learn qkv projections
+        groups = k * n_variables
+        qkv_channels = 5 * hidden_dim if instantaneous else 3 * hidden_dim
+        self.tcn = TCN(**kwargs, hidden_dim=groups * hidden_dim, out_channels=groups * qkv_channels, groups=groups)
+
+        self.attention_mechanism = ScaledDotProductTemporalAttention(softmax_method, n_heads)
+
+    def forward(self, x, temperature=1.0):
+        """
+        Perform a forward pass through the attention module.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, k * n_var * dim, sequence_length).
+            temperature (float): softmax temperature
+
+        Returns:
+            embeddings (torch.Tensor): Prediction of size (batch_size, k * n_var * dim, sequence_length).
+            attentions (torch.Tensor): Attention weights of size (batch_size, k, n_var, n_var, sequence_length).
+        """
+        batch_size, _, sequence_length = x.size()
+
+        if self.instantaneous:
+            x = self.pad(x)
+
+            # Apply qkv convolution and reshape: batch_size * k * n_var, 5, hidden_dim, sequence_length + 1)
+            x = self.tcn(x).reshape(-1, self.n_variables * self.hidden_dim, 5, sequence_length + 1)
+
+            # Split q, k, and v tensors: (batch_size * k * n_var, hidden_dim, sequence_length)
+            q, k, v = x[..., :3, :-1].unbind(dim=-2)
+            k_instant, v_instant = x[..., 3:, 1:].unbind(dim=-2)
+        else:
+            # Apply qkv convolution and reshape: (batch_size * k * n_var, 3, hidden_dim, sequence_length)
+            x = self.tcn(x).reshape(-1, self.n_variables * self.hidden_dim, 3, sequence_length)
+
+            # Split q, k, and v tensors: (batch_size * k * n_var, hidden_dim, sequence_length)
+            q, k, v = x.unbind(dim=-2)
+            k_instant, v_instant = None, None
+
+        # Calculate attention and predictions:
+        x, attentions = self.attention_mechanism(q, k, v, k_instant, v_instant, temperature=temperature)
+
+        x = x.reshape(batch_size, -1, sequence_length)
+        attentions = attentions.reshape(batch_size, self.k, self.n_variables, self.n_variables, sequence_length)
+
+        return x, attentions
+
+
+class ScaledDotProductTemporalAttention(nn.Module):
+    def __init__(self, n_heads: int, softmax_method: str, mask=None):
+        super().__init__()
+        self.mask = mask
+        self.n_heads = n_heads
+        self.softmax_method = get_attention_activation(softmax_method)
+
+    def forward(self, q, k, v, k_instant=None, v_instant=None, temperature=1.0):
+        """
+        Perform scaled dot-product attention for temporal (instantaneous0 attention.
+
+        Args:
+            q (torch.Tensor): Query tensor of shape (batch_size, groups, hidden_dim, sequence_length).
+            k (torch.Tensor): Key tensor of shape (batch_size, groups, hidden_dim, sequence_length).
+            v (torch.Tensor): Value tensor of shape (batch_size, groups, hidden_dim, sequence_length).
+            k_instant (torch.Tensor): Value tensor of shape (batch_size, groups, hidden_dim, sequence_length).
+            v_instant (torch.Tensor): Value tensor of shape (batch_size, groups, hidden_dim, sequence_length).
+            temperature (float): softmax temperature
+
+        Returns:
+            torch.Tensor: Output tensor after attention calculation of size (batch_size, n_var * hidden_dim, sequence_length).
+            torch.Tensor: Attention weights of size (batch_size, n_var, n_var, sequence_length).
+        """
+        if k_instant is not None:
+            k = torch.cat((k, k_instant), dim=1)
+            v = torch.cat((v, v_instant), dim=1)
+
+        batch_size, groups_q, hidden_dim, sequence_length = q.size()
+        groups_kv = k.size(1)
+        d_k = hidden_dim // self.n_heads
+
+        # Reshape q, k, and v tensors
+        # (batch_size, n_heads, seq_length, groups_q, dk)
+        q = q.reshape(batch_size, groups_q, self.n_heads, d_k, sequence_length).permute(0, 2, 4, 1, 3)
+        # (batch_size, n_heads, seq_length, dk, groups_kv)
+        k = k.reshape(batch_size, groups_kv, self.n_heads, d_k, sequence_length).permute(0, 2, 4, 3, 1)
+        # (batch_size, n_heads, seq_length, groups_kv, dk)
+        v = v.reshape(batch_size, groups_kv, self.n_heads, d_k, sequence_length).permute(0, 2, 4, 1, 3)
+
+        # Calculate attention scores: (batch_size, num_heads, sequence_length, groups_q, groups_kv)
+        attention_logits = torch.matmul(q, k) * ((d_k ** -0.5) / temperature)
+
+        # Apply masking if provided
+        if self.mask is not None:
+            attention_logits = attention_logits.masked_fill(self.mask == 0, -1e9)
+
+        # Calculate attention weights: (batch_size, num_heads, sequence_length, groups_q, groups_kv)
+        attentions = self.softmax_method(attention_logits, dim=-1)
+
+        # Calculate output projection: (batch_size, num_heads, sequence_length, groups_q, dk)
+        x = torch.matmul(attentions, v)
+
+        # Rearrange: (batch_size, num_heads, groups_q, groups_kv, sequence_length)
+        attentions = attentions.permute(0, 1, 3, 4, 2)
+        # Mean over heads: (batch_size, groups_q, groups_kv, sequence_length)
+        attentions = attentions.mean(dim=1)
+
+        # Permute to original form and concatenate heads: (batch_size, groups_q * hidden_dim, sequence_length)
+        x = x.permute(0, 3, 1, 4, 2).reshape(batch_size, -1, sequence_length)
+
+        return x, attentions
+
+
+class ConvertInstant(nn.Module):
+    def __init__(self, groups):
+        super().__init__()
+        self.unflatten = torch.nn.Unflatten(-2, (2, -1))
+        mask = torch.zeros(groups, 2, groups, 1, dtype=torch.bool)
+        mask[range(groups), 1, range(groups)] = True
+        self.register_buffer('mask', mask)
+
+    def forward(self, attentions):
+        attentions = self.unflatten(attentions)
+        attentions = torch.masked_fill(attentions, self.mask, value=0)
+        return attentions.sum(dim=-3)
+
+

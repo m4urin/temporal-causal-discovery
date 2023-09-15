@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from config import RESULTS_DIR
+from config import OUTPUT_DIR
 from src.training.train_model import train_model
 from src.utils import load_synthetic_data, ConsoleProgressBar
 
@@ -38,7 +38,7 @@ def run_experiment(dataset, model_name, weight_sharing, recurrent):
 
 def main():
     data_name = 'synthetic_N-5_T-500_K-6'
-    results_path = os.path.join(RESULTS_DIR, "experiments", "complexity", data_name)
+    results_path = os.path.join(OUTPUT_DIR, "experiments", "complexity", data_name)
     os.makedirs(results_path, exist_ok=True)
 
     dataset = load_synthetic_data(data_name)

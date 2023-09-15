@@ -2,8 +2,8 @@ import os
 
 import torch
 
-from config import RESULTS_DIR
-from src.models.SimpleAttention import SimpleAttention, train_model
+from config import OUTPUT_DIR
+from src.models.SimpleAttention_ignore import SimpleAttention, train_model
 from src.utils import load_causeme_data, ConsoleProgressBar, write_bz2_file
 
 
@@ -14,7 +14,7 @@ MODEL = 'TestWEATHnoise'
 def get_output_dir(dataset_name: str) -> str:
     """Generate output directory based on current date, time, dataset name, and GPULAB job ID."""
     dir_name = f"experiment_{dataset_name}"
-    full_path = os.path.join(RESULTS_DIR, dir_name)
+    full_path = os.path.join(OUTPUT_DIR, dir_name)
     os.makedirs(full_path, exist_ok=True)
     return full_path
 

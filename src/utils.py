@@ -1,5 +1,6 @@
 import argparse
 import bz2
+import hashlib
 import json
 import math
 import os
@@ -8,7 +9,10 @@ import random
 import time
 import warnings
 import zipfile
+from typing import Union, Iterable
 
+import matplotlib.pyplot as plt
+import mlflow
 import numpy as np
 import torch
 from collections import defaultdict
@@ -21,13 +25,13 @@ from torch import nn
 from torch.optim import lr_scheduler
 from tqdm import trange
 
-from config import DATA_DIR
+from config import DATA_DIR, OUTPUT_DIR, TRACKING_URI
 
 
 # --------- TCN ---------
 
-def receptive_field(b, n, k):
-    return n * ((2 ** b) - 1) * (k - 1) + 1
+def receptive_field(n_blocks, n_layers_per_block, kernel_size):
+    return n_layers_per_block * ((2 ** n_blocks) - 1) * (kernel_size - 1) + 1
 
 
 def generate_architecture_options(max_lags, marge, minimum_num_options=1,
@@ -77,7 +81,7 @@ def generate_architecture_options(max_lags, marge, minimum_num_options=1,
             err += f", n_blocks={n_layers_per_block}"
         if kernel_size:
             err += f", n_blocks={kernel_size}"
-        err += f". Even after increasing the marge to 3 x marge={3*marge}."
+        err += f". Even after increasing the marge to 3 x marge={3 * marge}."
         raise ValueError(err)
 
     return [{'n_blocks': b, 'n_layers_per_block': l, 'kernel_size': k} for b, l, k in valids]
@@ -85,7 +89,7 @@ def generate_architecture_options(max_lags, marge, minimum_num_options=1,
 
 # --------- Datasets ---------
 
-def load_data(data_dir:str, name: str):
+def load_data(data_dir: str, name: str):
     """ Load and preprocess data from a zip file. """
     if data_dir == 'causeme':
         return load_causeme_data(name)
@@ -110,7 +114,7 @@ def load_synthetic_data(name: str):
         name=name,
         data=data['data'].unsqueeze(0),
         data_mean=data['data_mean'].unsqueeze(0),
-        gt=data['gt'].unsqueeze(0).float()
+        ground_truth=data['ground_truth'].unsqueeze(0).float()
     )
 
 
@@ -124,12 +128,8 @@ def load_causeme_data(name: str):
     data = torch.from_numpy(data).float().transpose(-1, -2).unsqueeze(dim=1)
     return preprocess_data(name=name, data=data)
 
-def write_causeme_predictions():
-    # TODO
-    pass
 
-
-def preprocess_data(name, data, data_mean=None, gt=None):
+def preprocess_data(name, data, data_mean=None, ground_truth=None):
     """ Preprocess data by normalizing and optional preprocessing of mean and ground truth. """
     means = data.mean(dim=-1, keepdim=True)
     stds = data.std(dim=-1, keepdim=True)
@@ -137,9 +137,30 @@ def preprocess_data(name, data, data_mean=None, gt=None):
     result = {'name': name, 'data': data}
     if data_mean is not None:
         result['data_mean'] = (data_mean - means) / stds
-    if gt is not None:
-        result['gt'] = gt
+    if ground_truth is not None:
+        result['ground_truth'] = ground_truth
     return result
+
+
+def write_causeme_predictions(model, dataset_name, scores, **parameter_values):
+    data = {
+        'experiment': dataset_name,
+        'model': dataset_name.split('_')[0],
+        'parameter_values': ', '.join([f'{k}={v}' for k, v in parameter_values.items()]),
+        'method_sha': "e0ff32f63eca4587b49a644db871b9a3" if model == 'NAVAR' else "8fbf8af651eb4be7a3c25caeb267928a",
+        'scores': scores.reshape(scores.size(0), -1).detach().cpu().numpy().tolist()
+    }
+    data = json.dumps(data).encode('latin1')
+    md5 = hashlib.md5(data).digest().hex()[:8]
+
+    dir_path = os.path.join(OUTPUT_DIR, 'artifacts')
+    os.makedirs(dir_path, exist_ok=True)
+    filepath = os.path.join(dir_path, f'{model}_{dataset_name}_{md5}.json.bz2')
+
+    with bz2.BZ2File(filepath, 'w') as bz2_file:
+        bz2_file.write(data)
+
+    return filepath
 
 
 # --------- PyTorch Functions ---------
@@ -367,6 +388,12 @@ def smooth_line(x: np.ndarray, sigma=4.0, axis=-1, reduce_size: int = None):
     return smooth_x
 
 
+def to_numpy(x: Union[torch.Tensor, np.ndarray, Iterable]) -> np.ndarray:
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy()
+    return np.array(x)
+
+
 # --------- Pretty Printing Functions ---------
 
 def pretty_number(a_number, significant_digits=1):
@@ -414,6 +441,7 @@ def valid_number(data_type, min_incl=None, min_excl=None, max_incl=None, max_exc
     Generate a validation function for a specified data type with optional bounds checks,
     supporting both inclusive and exclusive ranges.
     """
+
     def validate_number(value):
         # Convert value based on data_type
         try:
@@ -428,13 +456,13 @@ def valid_number(data_type, min_incl=None, min_excl=None, max_incl=None, max_exc
 
         # Check if both inclusive and exclusive bounds are set for min or max
         if (min_incl is not None and min_excl is not None) or \
-           (max_incl is not None and max_excl is not None):
+                (max_incl is not None and max_excl is not None):
             raise ValueError("You cannot set both inclusive and exclusive bounds for min or max.")
 
         if (min_incl is not None and num_value < min_incl) or \
-           (min_excl is not None and num_value <= min_excl) or \
-           (max_incl is not None and num_value > max_incl) or \
-           (max_excl is not None and num_value >= max_excl):
+                (min_excl is not None and num_value <= min_excl) or \
+                (max_incl is not None and num_value > max_incl) or \
+                (max_excl is not None and num_value >= max_excl):
 
             bounds = []
             if min_incl is not None:
@@ -531,6 +559,7 @@ class ConsoleProgressBar:
     Create a console-based progress bar for tracking the advancement of a process.
     Displays progress percentage, elapsed and estimated time, along with an optional description.
     """
+
     def __init__(self, total, display_interval=1, title=None):
         self.total = total
         self.current = 0
@@ -690,14 +719,13 @@ def get_method_hp_description(model, hidden_dim, lambda1, architecture,
     params = f""
     if model == 'TAMCaD':
         params += f"n_heads={n_heads}, "  # beta={pretty_number(beta)}, "  {softmax_method},
-    params += f"dim={hidden_dim}, b_n_k=({n_blocks},{n_layers_per_block},{kernel_size})" #layers_per_block={n_layers_per_block}, " \
-              #f"kernel_size={kernel_size}, lambda1={pretty_number(lambda1)}"
-              #f"epochs={epochs}, lr={pretty_number(lr)}, " \
-              #f"weight_decay={pretty_number(weight_decay)}, dropout={pretty_number(dropout)}"
+    params += f"dim={hidden_dim}, b_n_k=({n_blocks},{n_layers_per_block},{kernel_size})"  # layers_per_block={n_layers_per_block}, " \
+    # f"kernel_size={kernel_size}, lambda1={pretty_number(lambda1)}"
+    # f"epochs={epochs}, lr={pretty_number(lr)}, " \
+    # f"weight_decay={pretty_number(weight_decay)}, dropout={pretty_number(dropout)}"
 
     if len(result) > 0:
         result += ', ' + params
     else:
         result = params
     return {'parameter_values': result, 'method_sha': method_sha}
-

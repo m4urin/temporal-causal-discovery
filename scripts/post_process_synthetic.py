@@ -3,7 +3,7 @@ from pprint import pprint
 
 import torch
 
-from src.data.visualisations import plot_heatmap
+from src.data.visualisations import plot_heatmaps
 from src.utils import load_synthetic_data
 
 

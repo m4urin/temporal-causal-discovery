@@ -4,10 +4,10 @@ from time import sleep
 import numpy as np
 import torch
 
-from config import RESULTS_DIR
+from config import OUTPUT_DIR
 from src.data.generate_toy_data import construct_temporal_causal_data
 from src.experiments.train_model import train_model
-from src.data.visualisations import plot_multiple_timeseries, plot_heatmap
+from src.data.visualisations import plot_multiple_timeseries, plot_heatmaps
 
 
 def run(experiment_name, data, true_causal_matrix):
@@ -38,22 +38,22 @@ def run(experiment_name, data, true_causal_matrix):
 
 
 if __name__ == '__main__':
-    path_causal = os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/causal")
+    path_causal = os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2/causal")
     # path_random = os.path.join(RESULTS_DIR, "training/4_navar_vs_attention_2/random")
-    data_path = os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/causal_data.pt")
+    data_path = os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2/causal_data.pt")
     os.makedirs(path_causal, exist_ok=True)
     # os.makedirs(path_random, exist_ok=True)
 
     if not os.path.exists(data_path):
         causal_data = construct_temporal_causal_data(num_nodes=6, max_lags=15, sequence_length=1000,
                                                      num_external=2, external_connections=2)
-        causal_data.plot('Causal data', view=True,
-                         folder_path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2"))
+        causal_data.render('Causal data', view=True,
+                           folder_path=os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2"))
         torch.save(causal_data, data_path)
     else:
         causal_data = torch.load(data_path)
-        causal_data.plot('Causal data', view=False,
-                         folder_path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2"))
+        causal_data.render('Causal data', view=False,
+                           folder_path=os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2"))
 
     causal_results = run("4_navar_vs_attention_2/causal", causal_data.timeseries_data.train_data)  # length=4
 
@@ -69,7 +69,7 @@ if __name__ == '__main__':
                              limit=(0, 1.25),
                              y_labels=['Train loss'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/causal_vs_random.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2/causal_vs_random.svg")
                              )
 
     train_losses_true = [interpolate_array(r.train_result.train_losses_true, n=r.train_result.test_every) for r in
@@ -84,7 +84,7 @@ if __name__ == '__main__':
                              limit=(0, 0.85),
                              y_labels=['Loss'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/train_vs_test.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2/train_vs_test.svg")
                              )
 
     aucroc_data_best = [max(result.train_result.aucroc_scores, key=lambda x: x['score']) for result in causal_results]
@@ -96,7 +96,7 @@ if __name__ == '__main__':
         scores=[x['score'] for x in aucroc_data_best],
         names=["Attention", "Additive"],
         view=False,
-        path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/aucroc.svg"))
+        path=os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2/aucroc.svg"))
 
     sleep(0.2)
     for name, x, c in zip(["Attention", "Additive"], aucroc_data_best, causal_results):
@@ -107,12 +107,12 @@ if __name__ == '__main__':
 
     size = aucroc_data_best[0]['causal_matrix'].shape
     true_causal_matrix = causal_data.causal_graph.get_causal_matrix(exclude_max_lags=True)[:size[0], :size[1]]
-    plot_heatmap(true_causal_matrix,
-                 [x['causal_matrix'] for x in aucroc_data_best] +
-                 [x['causal_matrix'] for x in aucroc_data_last],
-                 view=True,
-                 names=["Attention (best)", "Additive (best)", "Attention (last)", "Additive (last)"],
-                 path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/causal_matrix.svg"))
+    plot_heatmaps(true_causal_matrix,
+                  [x['causal_matrix'] for x in aucroc_data_best] +
+                  [x['causal_matrix'] for x in aucroc_data_last],
+                  view=True,
+                  names=["Attention (best)", "Additive (best)", "Attention (last)", "Additive (last)"],
+                  path=os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2/causal_matrix.svg"))
 
     average_prediction = np.array(
         [[x['causal_matrix'] for x in result.train_result.aucroc_scores] for result in causal_results])
@@ -136,7 +136,7 @@ if __name__ == '__main__':
                              limit=(0, 1.0),
                              y_labels=['AUCROC'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/aucroc_epochs.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2/aucroc_epochs.svg")
                              )
 
     var = 2
@@ -151,5 +151,5 @@ if __name__ == '__main__':
                              title=f"Variable {var}",
                              y_labels=['Attention', "Additive"],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/4_navar_vs_attention_2/attn_over_time.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/4_navar_vs_attention_2/attn_over_time.svg")
                              )

@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 
-from config import RESULTS_DIR
+from config import OUTPUT_DIR
 from src.data.generate_toy_data import construct_temporal_causal_data
 from src.experiments.run_experiment import run_experiment
 from tests.old.temporal_causal_model import TemporalCausalModel
@@ -52,22 +52,22 @@ def run(experiment_name, dataset):
 
 
 if __name__ == '__main__':
-    path_causal = os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/causal")
+    path_causal = os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention/causal")
     # path_random = os.path.join(RESULTS_DIR, "training/3_dot_product_attention/random")
-    data_path = os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/causal_data.pt")
+    data_path = os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention/causal_data.pt")
     os.makedirs(path_causal, exist_ok=True)
     # os.makedirs(path_random, exist_ok=True)
 
     if not os.path.exists(data_path):
         causal_data = construct_temporal_causal_data(num_nodes=14, num_edges=20, sequence_length=1000,
                                                      max_lags=60, ext_nodes=2, num_ext_connections=1)
-        causal_data.plot('Causal data', view=True,
-                         folder_path=os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention"))
+        causal_data.render('Causal data', view=True,
+                           folder_path=os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention"))
         torch.save(causal_data, data_path)
     else:
         causal_data = torch.load(data_path)
-        causal_data.plot('Causal data', view=True,
-                         folder_path=os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention"))
+        causal_data.render('Causal data', view=True,
+                           folder_path=os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention"))
 
     causal_results = run("3_dot_product_attention/causal", causal_data)  # length=4
     # random_results = run("3_dot_product_attention/random", random_data)
@@ -87,7 +87,7 @@ if __name__ == '__main__':
                              limit=(0, 1.25),
                              y_labels=['Train loss'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/causal_vs_random.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention/causal_vs_random.svg")
                              )
 
     plot_multiple_timeseries(train_losses,
@@ -99,7 +99,7 @@ if __name__ == '__main__':
                              limit=(0, 1.25),
                              y_labels=['Train loss'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/causal_vs_random.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention/causal_vs_random.svg")
                              )
 
     train_losses_true = [interpolate_array(r.train_result.train_losses_true, n=r.train_result.test_every) for r in
@@ -114,7 +114,7 @@ if __name__ == '__main__':
                              limit=(0, 0.85),
                              y_labels=['Loss'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/train_vs_test.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention/train_vs_test.svg")
                              )
 
     aucroc_data = [max(result.train_result.aucroc_scores, key=lambda x: x['score']) for result in causal_results]
@@ -125,7 +125,7 @@ if __name__ == '__main__':
         scores=[x['score'] for x in aucroc_data],
         names=["TCN", "Rec-TCN", "WS-TCN", "WS-Rec-TCN"],
         view=False,
-        path=os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/aucroc.svg"))
+        path=os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention/aucroc.svg"))
 
     for name, x in zip(["TCN", "Rec-TCN", "WS-TCN", "WS-Rec-TCN"], aucroc_data):
         print(f"{name} - score: {round(x['score'], 2)}, epoch: {x['epoch']}")
@@ -133,7 +133,7 @@ if __name__ == '__main__':
     true_causal_matrix = causal_data.causal_graph.get_causal_matrix()
     plot_heatmap(true_causal_matrix, [x['causal_matrix'] for x in aucroc_data], view=True,
                  names=["TCN", "Rec-TCN", "WS-TCN", "WS-Rec-TCN"],
-                 path=os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/causal_matrix.svg"))
+                 path=os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention/causal_matrix.svg"))
 
     aucroc_scores = np.array([interpolate_array([x['score'] for x in result.train_result.aucroc_scores],
                                                 n=result.train_result.test_every) for result in causal_results])
@@ -146,5 +146,5 @@ if __name__ == '__main__':
                              limit=(0, 1.0),
                              y_labels=['AUCROC'],
                              x_label="Epochs",
-                             path=os.path.join(RESULTS_DIR, "experiments/3_dot_product_attention/aucroc_epochs.svg")
+                             path=os.path.join(OUTPUT_DIR, "experiments/3_dot_product_attention/aucroc_epochs.svg")
                              )

@@ -8,7 +8,7 @@ from torch.optim import AdamW
 from tqdm import trange
 
 from src.utils import exponential_scheduler_with_warmup, get_model_device
-from src.data.visualisations import plot_mesh, plot_3d_points
+from src.data.visualisations import plot_3d_surface, plot_3d_scatter_points
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 warnings.filterwarnings("ignore", category=UserWarning, message=r'.*scheduler\.step\(\).*')
@@ -235,12 +235,12 @@ def test_models():
     for i in range(len(adj_matrix)):
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
-        ax = plot_mesh(*mesh_data_coupled[i], ax=ax, cmap='twilight', label='Coupled Model',
-                       label_color=np.array([[187.0, 132, 149, 256]])/256)
-        ax = plot_mesh(*mesh_data_additive[i], ax=ax, cmap='winter', label='Additive Model',
-                       label_color=np.array([[7.0, 148, 168, 256]])/256)
+        ax = plot_3d_surface(*mesh_data_coupled[i], ax=ax, cmap='twilight', label='Coupled Model',
+                             label_color=np.array([[187.0, 132, 149, 256]])/256)
+        ax = plot_3d_surface(*mesh_data_additive[i], ax=ax, cmap='winter', label='Additive Model',
+                             label_color=np.array([[7.0, 148, 168, 256]])/256)
         x1, x2, y = points_3d[i]
-        ax = plot_3d_points(x1, x2, y + 0.02, ax=ax, label='Random generation data')
+        ax = plot_3d_scatter_points(x1, x2, y + 0.02, ax=ax, label='Random generation data')
 
         plt.legend()
         ax.view_init(azim=60, elev=20)

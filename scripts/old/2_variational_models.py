@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 
-from config import RESULTS_DIR
+from config import OUTPUT_DIR
 from src.data.toy_data.toy_data_6_nodes_non_additive import toy_data_6_nodes_non_additive
 from src.experiments.run_experiment import run_experiment
 from tests.old.temporal_causal_model import TemporalCausalModel
@@ -49,7 +49,7 @@ def run(experiment_name, dataset):
 
 
 if __name__ == '__main__':
-    path = os.path.join(RESULTS_DIR, "experiments/2_variational_models")
+    path = os.path.join(OUTPUT_DIR, "experiments/2_variational_models")
     os.makedirs(path, exist_ok=True)
 
     causal_data = toy_data_6_nodes_non_additive(time_steps=1000)

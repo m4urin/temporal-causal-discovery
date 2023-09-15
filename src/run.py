@@ -3,7 +3,7 @@ from pprint import pprint
 
 import torch
 from hyperopt.pyll.stochastic import sample
-from config import RESULTS_DIR, GPULAB_JOB_ID
+from config import OUTPUT_DIR, GPULAB_JOB_ID
 from src.training.hyper_optimization import run_hyperopt, dataset_subset
 from src.training.train_model import train_model
 from src.utils import load_data, read_json, write_json, ConsoleProgressBar, get_method_simple_description
@@ -61,7 +61,7 @@ def evaluate_using_params(dataset: dict, output_dir: str, train_params: dict) ->
 def get_output_dir(dataset_name: str, **model_params) -> str:
     """Generate output directory based on current date, time, dataset name, and GPULAB job ID."""
     dir_name = f"{get_method_simple_description(**model_params)}_{dataset_name}"
-    full_path = os.path.join(RESULTS_DIR, dir_name)
+    full_path = os.path.join(OUTPUT_DIR, dir_name)
     os.makedirs(full_path, exist_ok=True)
     return full_path
 

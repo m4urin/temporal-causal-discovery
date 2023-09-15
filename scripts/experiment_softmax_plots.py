@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 
-from config import RESULTS_DIR
+from config import OUTPUT_DIR
 from src.data.generate_toy_data import construct_temporal_causal_data
 from src.data.temporal_causal_data import TemporalCausalData
 from src.experiments.train_model import train_model
@@ -47,22 +47,22 @@ def run(causal_data: TemporalCausalData, softmax_method, beta, lambda1):
 
 
 if __name__ == '__main__':
-    path_causal = os.path.join(RESULTS_DIR, "training/experiment_softmax/causal")
+    path_causal = os.path.join(OUTPUT_DIR, "training/experiment_softmax/causal")
     # path_random = os.path.join(RESULTS_DIR, "training/experiment_softmax/random")
-    data_path = os.path.join(RESULTS_DIR, "training/experiment_softmax/causal_data.pt")
+    data_path = os.path.join(OUTPUT_DIR, "training/experiment_softmax/causal_data.pt")
     os.makedirs(path_causal, exist_ok=True)
     # os.makedirs(path_random, exist_ok=True)
 
     if not os.path.exists(data_path):
         causal_data = construct_temporal_causal_data(num_nodes=5, max_lags=10, sequence_length=1252,
                                                      num_external=1, external_connections=1)
-        causal_data.plot('Causal data', view=True,
-                         folder_path=os.path.join(RESULTS_DIR, "training/experiment_softmax"))
+        causal_data.render('Causal data', view=True,
+                           folder_path=os.path.join(OUTPUT_DIR, "training/experiment_softmax"))
         torch.save(causal_data, data_path)
     else:
         causal_data = torch.load(data_path)
-        causal_data.plot('Causal data', view=False,
-                         folder_path=os.path.join(RESULTS_DIR, "training/experiment_softmax"))
+        causal_data.render('Causal data', view=False,
+                           folder_path=os.path.join(OUTPUT_DIR, "training/experiment_softmax"))
 
     gt = causal_data.causal_graph.get_causal_matrix(exclude_max_lags=True, exclude_external_incoming=True)
     #gt = torch.cat((gt[:, :-2].float(), (torch.sum(gt[:, -2:], dim=1, keepdim=True) > 0).float()), dim=1)
