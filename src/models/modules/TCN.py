@@ -14,24 +14,29 @@ class TCN(nn.Module):
     - WeightSharingTCN: TCN model with weight sharing across the temporal layers.
     - RecurrentTCN: TCN model with recurrent temporal layers.
     - WeightSharingRecurrentTCN: TCN model with both weight sharing and recurrent temporal layers.
-
-    Args:
-        in_channels (int): Number of input channels.
-        out_channels (int): Number of output channels.
-        hidden_dim (int): Hidden dimension of the model.
-        kernel_size (int): Kernel size for the convolutional layers.
-        n_blocks (int, optional): Number of blocks in the TCN (default: 2).
-        n_layers_per_block (int, optional): Number of layers per block in the TCN (default: 2).
-        groups (int, optional): Number of groups for each Conv1d layer (default: 1).
-        dropout (float, optional): Dropout probability for the convolutional layers (default: 0.0).
-        weight_sharing (bool, optional): Whether to use weight sharing in the TCN (default: False).
-        recurrent (bool, optional): Whether to use recurrent temporal layers (default: False).
-        use_padding (bool, optional): Whether to use padding in convolutional layers (default: False).
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, kernel_size: int,
                  n_blocks: int = 2, n_layers_per_block: int = 2, groups: int = 1,
                  dropout: float = 0.0, weight_sharing: bool = False, recurrent: bool = False,
                  use_padding: bool = False):
+        """
+        This module defines a flexible Temporal Convolutional Network (TCN) class that can be configured with different
+        variants of TCN models, including weight sharing and recurrent architectures.
+
+        Args:
+            in_channels (int): Number of input channels.
+            out_channels (int): Number of output channels.
+            hidden_dim (int): Hidden dimension of the model.
+            kernel_size (int): Kernel size for the convolutional layers.
+            n_blocks (int, optional): Number of blocks in the TCN (default: 2).
+            n_layers_per_block (int, optional): Number of layers per block in the TCN (default: 2).
+            groups (int, optional): Number of groups for each Conv1d layer (default: 1).
+            dropout (float, optional): Dropout probability for the convolutional layers (default: 0.0).
+            weight_sharing (bool, optional): Whether to use weight sharing in the TCN (default: False).
+            recurrent (bool, optional): Whether to use recurrent temporal layers (default: False).
+            use_padding (bool, optional): Whether to use padding in convolutional layers to get the same
+                                          input and output size (default: False).
+        """
         super().__init__()
 
         # Prepare a dictionary to collect the arguments
@@ -372,7 +377,8 @@ class TemporalBlock(nn.Module):
 
     This module consists of a sequence of 1D convolutional layers with dilations, followed by ReLU activations
     and dropout layers. The number of layers, kernel size, dilation, and dropout rate can be configured
-    during initialization.
+    during initialization. Additionally, it allows external configuration of the 'dilation' attribute,
+    facilitating its use in a recurrent context (necessary for RecurrentTCN).
 
     Args:
         in_channels (int): Number of input channels.
