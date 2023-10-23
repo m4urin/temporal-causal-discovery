@@ -11,6 +11,8 @@ class NAVAR(nn.Module):
     Implements the Neural Additive Vector Auto-Regression (NAVAR) model.
 
     Args:
+        n_datasets (int): Number of distinct datasets.
+        n_ensembles (int): Number of ensembles per dataset.
         n_variables (int): Number of variables in the time series.
         hidden_dim (int): Hidden dimension size for the model.
         lambda1 (float, optional): Regularization factor.
@@ -21,66 +23,51 @@ class NAVAR(nn.Module):
         loss_function(y_true, prediction, contributions): Compute the loss for training.
         analysis(prediction, contributions): Perform analysis on the results.
     """
-    def __init__(self, n_datasets, n_samples, n_variables, hidden_dim, lambda1, **kwargs):
+    def __init__(self, n_datasets, n_ensembles, n_variables, hidden_dim, lambda1, **kwargs):
         super().__init__()
         self.lambda1 = lambda1
-
-        groups = n_datasets * n_samples * n_variables
-        self.groups = groups
+        self.groups = n_datasets * n_ensembles * n_variables
 
         # Initialize the TCN model to learn additive contributions.
         self.contributions = TCN(
-            in_channels=groups * 3,
-            out_channels=groups * n_variables,
-            hidden_dim=groups * hidden_dim,
-            groups=groups,
+            in_channels=self.groups * 3,
+            out_channels=self.groups * n_variables,
+            hidden_dim=self.groups * hidden_dim,
+            groups=self.groups,
             **kwargs
         )
 
         # Initialize learnable biases with small values.
-        self.biases = nn.Parameter(torch.ones(1, n_datasets, n_samples, n_variables, 1) * 0.01)
+        self.biases = nn.Parameter(torch.ones(n_datasets, n_ensembles, n_variables, 1) * 0.01)
 
     def forward(self, x):
         """
         Forward pass through the NAVAR model.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, n, sequence_length).
+            x (torch.Tensor): Input tensor of shape (batch_size, n_datasets, n_ensembles, n_variables * 3, sequence_length).
 
         Returns:
             dict: Dictionary containing the prediction and contributions.
         """
-        # batch_size, n_datasets, n_samples, n_var, seq
-        batch_size, n_datasets, n_samples, n, seq = x.size()
+        batch_size, n_datasets, n_ensembles, n_var, sequence_length = x.size()
+        n_var = n_var // 3
 
-        x = x.reshape(batch_size, -1, seq)
+        x = x.reshape(batch_size, -1, sequence_length)
 
         # Calculate contributions and reshape it.
-        contributions = self.contributions(x)
-        contributions = contributions.reshape(batch_size, n_datasets, n_samples, n, n, seq)
+        contributions = self.contributions(x).reshape(batch_size, n_datasets, n_ensembles, n_var, n_var, -1)
 
         # Sum contributions along dimension 1 and add biases to get the final prediction.
         prediction = contributions.sum(dim=-3) + self.biases
 
         return {
-            'prediction': prediction,
-            'contributions': contributions.transpose(-2, -3)
+            'prediction': prediction,  # (batch_size, n_datasets, n_ensembles, n_var, seq)
+            'contributions': contributions.transpose(-2, -3)  # (batch_size, n_datasets, n_ensembles, n_var, n_var, seq)
         }
 
-    def loss_function(self, y_true, prediction, contributions):
-        """
-        Compute the loss for training the model.
-
-        Args:
-            y_true (torch.Tensor): Ground truth labels of size (batch_size, n_datasets, n, seq).
-            prediction (torch.Tensor): Model predictions.
-            contributions (torch.Tensor): Contributions calculated by the model.
-
-        Returns:
-            torch.Tensor: Computed loss.
-        """
-        # Mean squared error loss
-        loss = nn.functional.mse_loss(prediction, y_true.unsqueeze(2))
+    def compute_loss(self, y_true, prediction, contributions):
+        loss = ((prediction - y_true) ** 2).mean()  # MSE loss
 
         if self.lambda1:
             # Adding regularization term

@@ -16,7 +16,7 @@ class TCN(nn.Module):
     - WeightSharingRecurrentTCN: TCN model with both weight sharing and recurrent temporal layers.
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, kernel_size: int,
-                 n_blocks: int = 2, n_layers_per_block: int = 2, groups: int = 1,
+                 n_blocks: int = 2, n_layers: int = 2, groups: int = 1,
                  dropout: float = 0.0, weight_sharing: bool = False, recurrent: bool = False,
                  use_padding: bool = False):
         """
@@ -29,7 +29,7 @@ class TCN(nn.Module):
             hidden_dim (int): Hidden dimension of the model.
             kernel_size (int): Kernel size for the convolutional layers.
             n_blocks (int, optional): Number of blocks in the TCN (default: 2).
-            n_layers_per_block (int, optional): Number of layers per block in the TCN (default: 2).
+            n_layers (int, optional): Number of layers per block in the TCN (default: 2).
             groups (int, optional): Number of groups for each Conv1d layer (default: 1).
             dropout (float, optional): Dropout probability for the convolutional layers (default: 0.0).
             weight_sharing (bool, optional): Whether to use weight sharing in the TCN (default: False).
@@ -46,7 +46,7 @@ class TCN(nn.Module):
             'hidden_dim': hidden_dim,
             'kernel_size': kernel_size,
             'n_blocks': n_blocks,
-            'n_layers_per_block': n_layers_per_block,
+            'n_layers': n_layers,
             'groups': groups,
             'dropout': dropout,
             'use_padding': use_padding
@@ -62,7 +62,7 @@ class TCN(nn.Module):
         else:
             self.tcn = DefaultTCN(**config)
 
-        self.receptive_field = (2 ** n_blocks - 1) * n_layers_per_block * (kernel_size - 1) + 1
+        self.receptive_field = (2 ** n_blocks - 1) * n_layers * (kernel_size - 1) + 1
 
     def forward(self, x):
         """
@@ -83,13 +83,13 @@ class DefaultTCN(nn.Module):
     The TCN is designed to take in temporal sequences of data and produce a prediction for each time step.
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
-                 kernel_size: int, n_blocks: int = 2, n_layers_per_block: int = 1,
+                 kernel_size: int, n_blocks: int = 2, n_layers: int = 1,
                  groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
         super().__init__()
         assert hidden_dim % groups == 0, "'hidden_dim' should be a multiple of 'groups'"
 
         # Calculate the total number of layers in the TCN
-        self.n_total_layers = n_blocks * n_layers_per_block + 1
+        self.n_total_layers = n_blocks * n_layers + 1
 
         # Initialize the activation and dropout layers
         relu = nn.ReLU()
@@ -105,7 +105,7 @@ class DefaultTCN(nn.Module):
                     kernel_size=kernel_size,
                     dilation=2 ** i,
                     groups=groups,
-                    n_layers=n_layers_per_block,
+                    n_layers=n_layers,
                     dropout=dropout,
                     use_residual=i > 0,
                     use_padding=use_padding)
@@ -139,7 +139,7 @@ class RecurrentTCN(nn.Module):
     of layers is large.
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
-                 kernel_size: int, n_blocks: int = 3, n_layers_per_block: int = 1,
+                 kernel_size: int, n_blocks: int = 3, n_layers: int = 1,
                  groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
         super().__init__()
 
@@ -154,7 +154,7 @@ class RecurrentTCN(nn.Module):
             kernel_size=kernel_size,
             dilation=1,
             groups=groups,
-            n_layers=n_layers_per_block,
+            n_layers=n_layers,
             dropout=dropout,
             use_residual=False,
             use_padding=use_padding
@@ -167,7 +167,7 @@ class RecurrentTCN(nn.Module):
             kernel_size=kernel_size,
             dilation=1,
             groups=groups,
-            n_layers=n_layers_per_block,
+            n_layers=n_layers,
             dropout=dropout,
             use_padding=use_padding
         )
@@ -211,7 +211,7 @@ class WeightSharingTCN(nn.Module):
     about the position of each element in the input sequence. Recurrent option can be used for even less parameters.
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
-                 kernel_size: int, n_blocks: int = 3, n_layers_per_block: int = 1,
+                 kernel_size: int, n_blocks: int = 3, n_layers: int = 1,
                  groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
         super().__init__()
 
@@ -232,7 +232,7 @@ class WeightSharingTCN(nn.Module):
             kernel_size=kernel_size,
             dilation=1,
             groups=groups,
-            n_layers=n_layers_per_block,
+            n_layers=n_layers,
             dropout=dropout,
             use_residual=False,
             use_padding=use_padding
@@ -248,7 +248,7 @@ class WeightSharingTCN(nn.Module):
                     kernel_size=kernel_size,
                     dilation=2 ** i,
                     groups=1,
-                    n_layers=n_layers_per_block,
+                    n_layers=n_layers,
                     dropout=dropout,
                     use_padding=use_padding)
             )
@@ -266,20 +266,20 @@ class WeightSharingTCN(nn.Module):
         )
 
     def forward(self, x: torch.Tensor):
-        batch_size, _, seq_length = x.size()
+        batch_size = x.size(0)
 
         x = self.first_block(x)  # (batch_size, hidden_dim, seq_len)
 
         # Reshape input tensor to match the expected shape of the TCN
         # (batch_size * groups, hidden_dim // groups, seq_len)
-        x = x.reshape(-1, self.hidden_dim // self.groups, seq_length)
+        x = x.reshape(-1, self.hidden_dim // self.groups, x.size(-1))
 
         # Apply the TCN to the input tensor
         # (batch_size * groups, out_channels // groups, seq_len)
         x = self.weight_shared(x)
 
         # Reshape the output tensor to match the expected shape of the WS-TCN
-        x = x.reshape(batch_size, -1, seq_length)  # (batch_size, out_channels, seq_len)
+        x = x.reshape(batch_size, -1, x.size(-1))  # (batch_size, out_channels, seq_len)
 
         # make the prediction
         x = self.prediction(x)
@@ -297,7 +297,7 @@ class WeightSharingRecurrentTCN(nn.Module):
     of layers is large.
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
-                 kernel_size: int, n_blocks: int = 3, n_layers_per_block: int = 1,
+                 kernel_size: int, n_blocks: int = 3, n_layers: int = 1,
                  groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
         super().__init__()
         assert n_blocks >= 3, 'if n_blocks is smaller than 3, please use a regular WS-TCN'
@@ -316,7 +316,7 @@ class WeightSharingRecurrentTCN(nn.Module):
             kernel_size=kernel_size,
             dilation=1,
             groups=groups,
-            n_layers=n_layers_per_block,
+            n_layers=n_layers,
             dropout=dropout,
             use_residual=False,
             use_padding=use_padding
@@ -329,7 +329,7 @@ class WeightSharingRecurrentTCN(nn.Module):
             kernel_size=kernel_size,
             dilation=1,
             groups=1,
-            n_layers=n_layers_per_block,
+            n_layers=n_layers,
             dropout=dropout,
             use_padding=use_padding
         )
@@ -343,7 +343,7 @@ class WeightSharingRecurrentTCN(nn.Module):
         )
 
     def forward(self, x):
-        batch_size, _, seq_length = x.size()
+        batch_size = x.size(0)
 
         # Pass input tensor through the first TCN block
         x = self.first_block(x)
@@ -352,7 +352,7 @@ class WeightSharingRecurrentTCN(nn.Module):
 
         # Reshape input tensor to match the expected shape of the TCN
         # (batch_size * groups, hidden_dim // groups, seq_len)
-        x = x.reshape(-1, self.hidden_dim // self.groups, seq_length)
+        x = x.reshape(-1, self.hidden_dim // self.groups, x.size(-1))
 
         # Pass input tensor through the residual blocks
         for i in range(self.n_blocks - 1):
@@ -365,7 +365,7 @@ class WeightSharingRecurrentTCN(nn.Module):
             x = self.dropout(x)
 
         # Reshape the output tensor to match the expected shape of the WS-TCN
-        x = x.reshape(batch_size, -1, seq_length)  # (batch_size, out_channels, seq_len)
+        x = x.reshape(batch_size, -1, x.size(-1))  # (batch_size, out_channels, seq_len)
 
         # Pass the output through the final prediction layer
         return self.predictions(x)
@@ -463,6 +463,6 @@ class TemporalBlock(nn.Module):
 
         # Add residual connection to the data
         if self.use_residual:
-            x = x + identity
+            x = x + identity[..., -x.size(-1):]
 
         return x

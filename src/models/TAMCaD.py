@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+from src.models.modules.attention_activation import get_attention_activation
 from src.training.result import Result
 from src.models.modules.TCN import TCN
 
@@ -20,17 +21,14 @@ class TAMCaD(nn.Module):
         **kwargs: Additional keyword arguments for the underlying :class:`src.models.tcn.TCN` architecture.
     """
 
-    def __init__(self, n_datasets, n_samples, n_variables, hidden_dim, lambda1, beta, n_heads=None, **kwargs):
+    def __init__(self, n_datasets, n_ensembles, n_variables, hidden_dim, lambda1, beta, n_heads=None, **kwargs):
         super().__init__()
-        self.n_datasets = n_datasets
-        self.n_samples = n_samples
-        self.n_variables = n_variables
-        self.group_shape = (n_datasets, n_samples, n_variables)
+        self.groups = n_datasets * n_ensembles * n_variables
 
         self.lambda1 = lambda1
         self.beta = beta
 
-        config = {"k": n_datasets * n_samples, "n_variables": n_variables, "hidden_dim": hidden_dim}
+        config = {"n_ensembles": n_datasets * n_ensembles, "n_variables": n_variables, "hidden_dim": hidden_dim}
 
         if n_heads:
             self.tamcad = ScaledDotProductTAMCaD(**config, **kwargs, n_heads=n_heads)
@@ -38,39 +36,36 @@ class TAMCaD(nn.Module):
             self.tamcad = SimpleTAMCaD(**config, **kwargs)
 
         reg_mask = None
-        if beta and n_samples > 1:
+        if beta and n_ensembles > 1:
             n_var_instant = 2 * n_variables if self.tamcad.instantaneous else n_variables
-            reg_mask = torch.rand(n_samples, n_variables, n_var_instant, 1) < 0.5
+            reg_mask = torch.rand(n_ensembles, n_variables, n_var_instant, 1) < 0.5
         self.register_buffer("reg_mask", reg_mask)
 
         self.convert_instant = ConvertInstant(n_variables) if self.tamcad.instantaneous else None
 
-        groups = n_datasets * n_samples * n_variables
         self.prediction = nn.Sequential(
-            nn.Conv1d(in_channels=groups * hidden_dim,
-                      out_channels=groups * hidden_dim // 2,
-                      kernel_size=1, groups=groups),
+            nn.Conv1d(in_channels=self.groups * hidden_dim,
+                      out_channels=self.groups * hidden_dim // 2,
+                      kernel_size=1, groups=self.groups),
             nn.ReLU(),
-            nn.Conv1d(in_channels=groups * hidden_dim // 2,
-                      out_channels=groups,
-                      kernel_size=1, groups=groups)
+            nn.Conv1d(in_channels=self.groups * hidden_dim // 2,
+                      out_channels=self.groups,
+                      kernel_size=1, groups=self.groups)
         )
 
     def forward(self, x, temperature=1.0):
         """
-        Perform a forward pass through the attention module.
+        Forward pass through the TAMCaD model.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, n_datasets, n_samples, n_var, sequence_length).
-            temperature (float): softmax temperature
+            x (torch.Tensor): Input tensor of shape (batch_size, n_datasets, n_ensembles, n_variables * 3, sequence_length).
 
         Returns:
-            embeddings (torch.Tensor): Prediction of size (batch_size, k * n_var * dim, sequence_length).
-            attentions (torch.Tensor): Attention weights of size (batch_size, k, n_var, n_var, sequence_length).
+            dict: Dictionary containing the prediction and attentions.
         """
-        batch_size, _, _, _, sequence_length = x.size()
+        batch_size, n_datasets, n_ensembles, n_var, sequence_length = x.size()
+        groups = (n_datasets, n_ensembles, n_var // 3)
 
-        # (batch_size, n_datasets * n_samples * n_var, sequence_length)
         x = x.reshape(batch_size, -1, sequence_length)
 
         # context: (batch_size, n_datasets * n_samples * n_var * dim, sequence_length)
@@ -81,23 +76,23 @@ class TAMCaD(nn.Module):
 
         # attentions: (batch_size, n_datasets, n_samples, n_var, (2*) n_var, sequence_length)
         # prediction: (batch_size, n_datasets, n_samples, n_var, sequence_length)
-        attentions = attentions.reshape(batch_size, *self.group_shape, -1, sequence_length)
-        prediction = prediction.reshape(batch_size, *self.group_shape, sequence_length)
+        prediction = prediction.reshape(batch_size, *groups, -1)
+        attentions = attentions.reshape(batch_size, *groups, -1, prediction.size(-1))
 
         return {
             'prediction': prediction,
             'attentions': attentions
         }
 
-    def loss_function(self, y_true, prediction, attentions):
-        # Mean squared error loss
-        loss = nn.functional.mse_loss(prediction, y_true)
+    def compute_loss(self, y_true, prediction, attentions):
+        loss = ((prediction - y_true) ** 2).mean()  # MSE loss
 
         if self.tamcad.instantaneous and self.lambda1:
-            n = self.n_variables
+            n = self.tamcad.n_variables
             loss = loss + self.lambda1 * attentions[..., range(n), range(n, 2 * n), :].mean()
 
         if self.reg_mask is not None:
+            print(self.reg_mask.size())
             loss = loss + self.beta * torch.masked_fill(attentions, mask=self.reg_mask, value=0).mean()
 
         return loss
@@ -122,9 +117,9 @@ class TAMCaD(nn.Module):
 
 
 class SimpleTAMCaD(nn.Module):
-    def __init__(self, k, n_variables, hidden_dim, softmax_method, instantaneous, **kwargs):
+    def __init__(self, n_ensembles, n_variables, hidden_dim, attention_activation, instantaneous, **kwargs):
         super().__init__()
-        self.k = k
+        self.n_ensembles = n_ensembles
         self.n_variables = n_variables
         self.hidden_dim = hidden_dim
         self.instantaneous = instantaneous
@@ -132,54 +127,63 @@ class SimpleTAMCaD(nn.Module):
         # Padding for instantaneous prediction
         self.pad = nn.ConstantPad1d((0, 1), 0) if instantaneous else None
 
+        self.attention_mechanism = SimpleAttention(attention_activation)
+
         # TCN to learn the projections
-        groups = k * n_variables
+        groups = n_ensembles * n_variables
         channels = groups * (hidden_dim + n_variables)
         if instantaneous:
             channels *= 2
-        self.tcn = TCN(**kwargs, hidden_dim=groups * hidden_dim, out_channels=channels, groups=groups)
 
-        self.attention_mechanism = SimpleAttention(softmax_method)
+        self.tcn = TCN(
+            in_channels=groups * 3,
+            hidden_dim=groups * hidden_dim,
+            out_channels=channels,
+            groups=groups,
+            **kwargs
+        )
 
     def forward(self, x, temperature=1.0):
         """
         Perform a forward pass through the attention module.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, k * n_var * dim, sequence_length).
+            x (torch.Tensor): Input tensor of shape (batch_size, n_ensembles * n_var * dim, sequence_length).
             temperature (float): softmax temperature
 
         Returns:
-            embeddings (torch.Tensor): Prediction of size (batch_size, k * n_var * dim, sequence_length).
-            attentions (torch.Tensor): Attention weights of size (batch_size, k, n_var, n_var, sequence_length).
+            embeddings (torch.Tensor): Prediction of size (batch_size, n_ensembles * n_var * dim, sequence_length).
+            attentions (torch.Tensor): Attention weights of size (batch_size, n_ensembles, n_var, n_var, sequence_length).
         """
         batch_size, _, sequence_length = x.size()
 
         if self.instantaneous:
             x = self.pad(x)
             # Apply qkv convolution and reshape: (batch_size * k, 2, n_var + hidden_dim, sequence_length + 1)
-            x = self.tcn(x).reshape(-1, 2, self.n_variables + self.hidden_dim, sequence_length + 1)
+            x = self.tcn(x)
+            x = x.reshape(-1, self.n_variables, 2, self.n_variables + self.hidden_dim, x.size(-1))
             # (batch_size * k, n_var + hidden_dim, sequence_length)
-            x, x_instant = x[:, 0, :, :-1], x[:, 1, :, 1:]
+            x, x_instant = x[..., 0, :, :-1], x[..., 1, :, 1:]
         else:
             # Apply qkv convolution and reshape: (batch_size * groups, n_var + hidden_dim, sequence_length)
-            x = self.tcn(x).reshape(-1, self.n_variables + self.hidden_dim, sequence_length)
+            x = self.tcn(x)
+            x = x.reshape(-1, self.n_variables, self.n_variables + self.hidden_dim, x.size(-1))
             x_instant = None
 
         # Calculate attention and predictions:
         x, attentions = self.attention_mechanism(x, x_instant, temperature=temperature)
 
-        x = x.reshape(batch_size, -1, sequence_length)
-        attentions = attentions.reshape(batch_size, self.k, self.n_variables, self.n_variables, sequence_length)
+        x = x.reshape(batch_size, -1, x.size(-1))
+        attentions = attentions.reshape(batch_size, self.n_ensembles, self.n_variables, -1, x.size(-1))
 
         return x, attentions
 
 
 class SimpleAttention(nn.Module):
-    def __init__(self, softmax_method: str, mask=None):
+    def __init__(self, attention_activation: str, mask=None):
         super().__init__()
         self.mask = mask
-        self.softmax_method = get_attention_activation(softmax_method)
+        self.attention_activation = get_attention_activation(attention_activation)
 
     def forward(self, x, x_instant=None, temperature=1.0):
         """
@@ -192,7 +196,7 @@ class SimpleAttention(nn.Module):
 
         Returns:
             torch.Tensor: Output tensor after attention calculation of size (batch_size, n_var * hidden_dim, sequence_length).
-            torch.Tensor: Attention weights of size (batch_size, n_var, n_var, sequence_length).
+            torch.Tensor: Attention weights of size (batch_size, n_var, (2*) n_var, sequence_length).
         """
         batch_size, n_var, _, sequence_length = x.size()
 
@@ -209,7 +213,7 @@ class SimpleAttention(nn.Module):
         if self.mask is not None:
             attentions = attentions.masked_fill(self.mask == 0, -1e9)
 
-        attentions = self.softmax_method(attentions / temperature, dim=2)
+        attentions = self.attention_activation(attentions / temperature, dim=2)
 
         # x: (batch_size, n_var * hidden_dim, sequence_length)
         x = torch.einsum('bijt, bjdt -> bidt', attentions, context).reshape(batch_size, -1, sequence_length)
@@ -221,9 +225,9 @@ class SimpleAttention(nn.Module):
 
 
 class ScaledDotProductTAMCaD(nn.Module):
-    def __init__(self, k, n_variables, hidden_dim, softmax_method, n_heads, instantaneous, **kwargs):
+    def __init__(self, n_ensembles, n_variables, hidden_dim, attention_activation, n_heads, instantaneous, **kwargs):
         super().__init__()
-        self.k = k
+        self.n_ensembles = n_ensembles
         self.n_variables = n_variables
         self.hidden_dim = hidden_dim
         self.instantaneous = instantaneous
@@ -231,12 +235,18 @@ class ScaledDotProductTAMCaD(nn.Module):
         # Padding for instantaneous prediction
         self.pad = nn.ConstantPad1d((0, 1), 0) if instantaneous else None
 
-        # TCN to learn qkv projections
-        groups = k * n_variables
-        qkv_channels = 5 * hidden_dim if instantaneous else 3 * hidden_dim
-        self.tcn = TCN(**kwargs, hidden_dim=groups * hidden_dim, out_channels=groups * qkv_channels, groups=groups)
+        self.attention_mechanism = ScaledDotProductTemporalAttention(n_heads, attention_activation)
 
-        self.attention_mechanism = ScaledDotProductTemporalAttention(softmax_method, n_heads)
+        # TCN to learn qkv projections
+        groups = n_ensembles * n_variables
+        qkv = 5 if instantaneous else 3
+        self.tcn = TCN(
+            in_channels=groups * 3,
+            hidden_dim=groups * hidden_dim,
+            out_channels=groups * hidden_dim * qkv,
+            groups=groups,
+            **kwargs
+        )
 
     def forward(self, x, temperature=1.0):
         """
@@ -250,40 +260,42 @@ class ScaledDotProductTAMCaD(nn.Module):
             embeddings (torch.Tensor): Prediction of size (batch_size, k * n_var * dim, sequence_length).
             attentions (torch.Tensor): Attention weights of size (batch_size, k, n_var, n_var, sequence_length).
         """
-        batch_size, _, sequence_length = x.size()
+        batch_size = x.size(0)
 
         if self.instantaneous:
             x = self.pad(x)
 
             # Apply qkv convolution and reshape: batch_size * k * n_var, 5, hidden_dim, sequence_length + 1)
-            x = self.tcn(x).reshape(-1, self.n_variables * self.hidden_dim, 5, sequence_length + 1)
+            x = self.tcn(x)
+            x = x.reshape(-1, self.n_variables, 5, self.hidden_dim, x.size(-1))
 
             # Split q, k, and v tensors: (batch_size * k * n_var, hidden_dim, sequence_length)
-            q, k, v = x[..., :3, :-1].unbind(dim=-2)
-            k_instant, v_instant = x[..., 3:, 1:].unbind(dim=-2)
+            q, k, v = x[..., :3, :, :-1].unbind(dim=-3)
+            k_instant, v_instant = x[..., 3:, :, 1:].unbind(dim=-3)
         else:
             # Apply qkv convolution and reshape: (batch_size * k * n_var, 3, hidden_dim, sequence_length)
-            x = self.tcn(x).reshape(-1, self.n_variables * self.hidden_dim, 3, sequence_length)
+            x = self.tcn(x)
+            x = x.reshape(-1, self.n_variables, 3, self.hidden_dim, x.size(-1))
 
             # Split q, k, and v tensors: (batch_size * k * n_var, hidden_dim, sequence_length)
-            q, k, v = x.unbind(dim=-2)
+            q, k, v = x.unbind(dim=-3)
             k_instant, v_instant = None, None
 
         # Calculate attention and predictions:
         x, attentions = self.attention_mechanism(q, k, v, k_instant, v_instant, temperature=temperature)
 
-        x = x.reshape(batch_size, -1, sequence_length)
-        attentions = attentions.reshape(batch_size, self.k, self.n_variables, self.n_variables, sequence_length)
+        x = x.reshape(batch_size, -1, x.size(-1))
+        attentions = attentions.reshape(batch_size, self.n_ensembles, self.n_variables, -1, x.size(-1))
 
         return x, attentions
 
 
 class ScaledDotProductTemporalAttention(nn.Module):
-    def __init__(self, n_heads: int, softmax_method: str, mask=None):
+    def __init__(self, n_heads: int, attention_activation: str, mask=None):
         super().__init__()
         self.mask = mask
         self.n_heads = n_heads
-        self.softmax_method = get_attention_activation(softmax_method)
+        self.attention_activation = get_attention_activation(attention_activation)
 
     def forward(self, q, k, v, k_instant=None, v_instant=None, temperature=1.0):
         """
@@ -325,7 +337,7 @@ class ScaledDotProductTemporalAttention(nn.Module):
             attention_logits = attention_logits.masked_fill(self.mask == 0, -1e9)
 
         # Calculate attention weights: (batch_size, num_heads, sequence_length, groups_q, groups_kv)
-        attentions = self.softmax_method(attention_logits, dim=-1)
+        attentions = self.attention_activation(attention_logits, dim=-1)
 
         # Calculate output projection: (batch_size, num_heads, sequence_length, groups_q, dk)
         x = torch.matmul(attentions, v)

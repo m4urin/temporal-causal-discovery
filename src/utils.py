@@ -25,13 +25,14 @@ from torch import nn
 from torch.optim import lr_scheduler
 from tqdm import trange
 
-from config import DATA_DIR, OUTPUT_DIR, TRACKING_URI, Dataset
+from environment import DATA_DIR, OUTPUT_DIR
+from src.config import Dataset
 
 
 # --------- TCN ---------
 
-def receptive_field(n_blocks, n_layers_per_block, kernel_size):
-    return n_layers_per_block * ((2 ** n_blocks) - 1) * (kernel_size - 1) + 1
+def receptive_field(n_blocks, n_layers, kernel_size):
+    return n_layers * ((2 ** n_blocks) - 1) * (kernel_size - 1) + 1
 
 
 def generate_architecture_options(max_lags, marge, minimum_num_options=1,

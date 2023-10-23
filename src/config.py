@@ -26,7 +26,7 @@ class Dataset:
 
 
 @dataclass
-class TCNConfig:
+class ModelConfig:
     """Configuration dataclass for models.
 
     Attributes:
@@ -38,6 +38,11 @@ class TCNConfig:
         use_padding (bool): Whether to use padding in the TCN to get the same input and output size.
         dropout (float): Dropout rate.
         hidden_dim (int): Dimension of hidden layers.
+        model_name (str): The name of the model.
+        attention_activation (str): Type of attention activation to use.
+        lambda1 (float): Lambda1 hyperparameter.
+        beta (float): Beta hyperparameter.
+        n_heads (int, Optional): Number of attention heads when using scaled dot product.
     """
     kernel_size: int
     n_blocks: int
@@ -47,22 +52,6 @@ class TCNConfig:
     use_padding: bool
     dropout: float
     hidden_dim: int
-
-
-@dataclass
-class CausalModelConfig:
-    """Configuration dataclass for models.
-
-    Attributes:
-        tcn (TCNConfig): Config of the TCN model.
-        model_name (str): The name of the model.
-        attention_activation (str): Type of attention activation to use.
-        lambda1 (float): Lambda1 hyperparameter.
-        beta (float): Beta hyperparameter.
-
-        n_heads (int, Optional): Number of attention heads when using scaled dot product.
-    """
-    tcn: TCNConfig
     model_name: str
     attention_activation: str
     lambda1: float
