@@ -56,7 +56,7 @@ def soft_roc_auc_score(labels: torch.Tensor, y_mean: torch.Tensor, y_std: torch.
         torch.linspace(-10, -2, (n_thresholds // 5) - 1, device=y_mean.device),
         torch.linspace(-2, 3, n_thresholds - 2 * (n_thresholds // 4), device=y_mean.device),
         torch.linspace(3, 11, (n_thresholds // 5) - 1, device=y_mean.device)
-    ]).reshape(1, 1, -1)  # size: (1, 1, n_thresholds)
+    ]).reshape(1, 1, -1)  # size (1, 1, n_thresholds)
 
     # cdf = 0.5 * (1 + erf) -> prob = 1 - (0.5 * (1 + erf)) = 0.5 - 0.5 * erf
     # erf is of size (bs, n_labels, n_thresholds)
