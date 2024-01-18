@@ -10,7 +10,7 @@ from environment import GPULAB_JOB_ID, OUTPUT_DIR
 from src.data.visualisations import plot_multi_roc_curve, plot_heatmaps, plot_contemporaneous_relationships
 from src.models.navar import NAVAR
 from src.models.TAMCaD import TAMCaD
-from src.eval.soft_roc_auc import roc_auc_score, soft_roc_auc_score
+from src.eval.soft_auroc import AUROC, soft_AUROC
 from src.utils import exponential_scheduler_with_warmup, augment_with_sine, count_parameters
 
 
@@ -103,13 +103,13 @@ def eval_step(epoch, model, x, y, gt, y_mean, phase, lambda1):
     if gt is not None:
         analysis = model.analysis(**output)
 
-        auroc = roc_auc_score(gt, analysis['temp_causal_matrix'])[2].item()
+        auroc = auroc(gt, analysis['temp_causal_matrix'])[2].item()
         mlflow.log_metric(f'AUROC/{phase}', auroc, step=epoch)
         info[f'{phase}_auroc'] = auroc
 
         if 'temp_confidence_matrix' in analysis:
-            soft_auroc = soft_roc_auc_score(gt, analysis['temp_causal_matrix'],
-                                            analysis['temp_confidence_matrix'])[2].item()
+            soft_auroc = soft_AUROC(gt, analysis['temp_causal_matrix'],
+                                    analysis['temp_confidence_matrix'])[2].item()
             mlflow.log_metric(f'Soft-AUROC/{phase}', soft_auroc, step=epoch)
             info[f'{phase}_softauroc'] = soft_auroc
 

@@ -7,7 +7,7 @@ from hyperopt import hp
 
 from environment import OUTPUT_DIR
 from src.data.generate_toy_data import construct_temporal_causal_data
-from src.eval.soft_roc_auc import calculate_AUROC
+from src.eval.soft_auroc import calculate_AUROC
 from src.experiments.run_experiment import run_experiment
 from tests.old.temporal_causal_model import TemporalCausalModel
 from src.utils.pytorch import interpolate_array

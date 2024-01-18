@@ -7,7 +7,7 @@ from src.eval.soft_auroc import AUROC
 from src.utils import min_max_normalization
 
 
-class TAMCaD(nn.Module):
+class TAMCaD_T(nn.Module):
     def __init__(self, n_variables, hidden_dim, lambda1, beta, gamma, **kwargs):
         super().__init__()
         self.gamma = gamma  # continuous matrices
@@ -19,12 +19,15 @@ class TAMCaD(nn.Module):
             # Initialize the TCN model to learn additive contributions.
             TCN(
                 in_channels=n_variables * hidden_dim,
-                out_channels=n_variables * (hidden_dim + n_variables),
+                out_channels=n_variables * (3 * hidden_dim),  # q, k, v
                 hidden_dim=n_variables * hidden_dim,
                 groups=n_variables,
                 **kwargs
             )
         )
+
+        self.dot_product_attention = ScaledDotProductAttention(n_heads=1)
+
         self.prediction = nn.Sequential(
             nn.Conv1d(in_channels=n_variables * hidden_dim,
                       out_channels=n_variables * (hidden_dim // 2),
@@ -35,31 +38,25 @@ class TAMCaD(nn.Module):
                       kernel_size=1, groups=n_variables)
         )
 
-    def forward(self, x, x_noise_adjusted=None, return_causal_matrix=False, temporal_matrix=False,
-                ground_truth=None, mask=None):
+    def forward(self, x, x_noise_adjusted=None, return_causal_matrix=False, return_embeddings=False,
+                temporal_matrix=False, ground_truth=None, mask=None):
 
         batch_size, n_var, seq_len = x.size()
 
-        context, attention_logits = self.tcn(x)\
-            .reshape(batch_size, n_var, n_var + self.hidden_dim, -1)\
-            .split([self.hidden_dim, n_var], dim=2)
+        # q, k, v: (batch_size, n_var, hidden_dim, seq_len)
+        q, k, v = self.tcn(x).reshape(batch_size, n_var, 3 * self.hidden_dim, -1).chunk(3, dim=2)
+        # z: (batch_size, n_var * hidden_dim, sequence_length)
+        # attn: (batch_size, n_var, n_var, seq_len)
+        z, attentions, attention_logits = self.dot_product_attention(q, k, v, mask=mask)
 
-        # Apply masking if provided
-        if mask is None:
-            attentions = torch.softmax(attention_logits, dim=2)
-        else:
-            attentions = torch.softmax(torch.masked_fill(attention_logits, mask, -1e9), dim=2)
-
-        # x: (batch_size, n_var * hidden_dim, sequence_length)
-        z = torch.einsum('bijt, bjdt -> bidt', attentions, context).reshape(batch_size, n_var * self.hidden_dim, -1)
-
+        # prediction: (batch_size, n_var, sequence_length)
         prediction = self.prediction(z)
 
-        return self.process(x, prediction, attention_logits, x_noise_adjusted,
-                            return_causal_matrix, temporal_matrix, ground_truth)
+        return self.process(x, prediction, attention_logits, q, k, v, x_noise_adjusted,
+                            return_causal_matrix, return_embeddings, temporal_matrix, ground_truth)
 
-    def process(self, x, prediction, attention_logits, x_noise_adjusted=None,
-                return_causal_matrix=False, temporal_matrix=False, ground_truth=None):
+    def process(self, x, prediction, attention_logits, q, k, v, x_noise_adjusted=None,
+                return_causal_matrix=False, return_embeddings=False, temporal_matrix=False, ground_truth=None):
         """
         Processes the outputs of the forward pass, computing losses and other metrics.
 
@@ -92,6 +89,13 @@ class TAMCaD(nn.Module):
             'prediction': prediction.squeeze(0),
             'attention_logits': attention_logits
         }
+        if return_embeddings:
+            result = {
+                **result,
+                'q': q.detach()[0].mean(dim=-1),  # (n_var, hidden_dim)
+                'k': k.detach()[0].mean(dim=-1),  # (n_var, hidden_dim)
+                'v': v.detach()[0].mean(dim=-1)  # (n_var, hidden_dim)
+            }
 
         # Additional computations if noise-adjusted values are provided
         if x_noise_adjusted is not None:
@@ -117,6 +121,66 @@ class TAMCaD(nn.Module):
         return result
 
 
+class ScaledDotProductAttention(nn.Module):
+    def __init__(self, n_heads: int):
+        super().__init__()
+        self.n_heads = n_heads
+
+    def forward(self, q, k, v, mask=None):
+        """
+        Perform scaled dot-product attention for temporal (instantaneous0 attention.
+
+        Args:
+            q (torch.Tensor): Query tensor of shape (batch_size, groups, hidden_dim, sequence_length).
+            k (torch.Tensor): Key tensor of shape (batch_size, groups, hidden_dim, sequence_length).
+            v (torch.Tensor): Value tensor of shape (batch_size, groups, hidden_dim, sequence_length).
+            mask (torch.Tensor): Mask
+
+        Returns:
+            torch.Tensor: Output tensor after attention calculation of size (batch_size, n_var * hidden_dim, sequence_length).
+            torch.Tensor: Attention weights of size (batch_size, n_var, n_var, sequence_length).
+        """
+
+        batch_size, groups_q, hidden_dim, sequence_length = q.size()
+        groups_kv = k.size(1)
+        d_k = hidden_dim // self.n_heads
+        scale = d_k ** -0.5
+
+        # Reshape q, k, and v tensors
+        # (batch_size, n_heads, seq_length, groups_q, dk)
+        q = q.reshape(batch_size, groups_q, self.n_heads, d_k, sequence_length).permute(0, 2, 4, 1, 3)
+        # (batch_size, n_heads, seq_length, dk, groups_kv)
+        k = k.reshape(batch_size, groups_kv, self.n_heads, d_k, sequence_length).permute(0, 2, 4, 3, 1)
+        # (batch_size, n_heads, seq_length, groups_kv, dk)
+        v = v.reshape(batch_size, groups_kv, self.n_heads, d_k, sequence_length).permute(0, 2, 4, 1, 3)
+
+        # Calculate attention scores: (batch_size, num_heads, sequence_length, groups_q, groups_kv)
+        attention_logits = scale * torch.matmul(q, k)
+
+        attentions = attention_logits
+        # Apply masking if provided
+        if mask is not None:
+            attentions = attention_logits.masked_fill(mask == 0, -1e9)
+
+        # Calculate attention weights: (batch_size, num_heads, sequence_length, groups_q, groups_kv)
+        attentions = torch.softmax(attentions, dim=-1)
+
+        # Calculate output projection: (batch_size, num_heads, sequence_length, groups_q, dk)
+        x = torch.matmul(attentions, v)
+
+        # Rearrange: (batch_size, num_heads, groups_q, groups_kv, sequence_length)
+        attentions = attentions.permute(0, 1, 3, 4, 2)
+        attention_logits = attention_logits.permute(0, 1, 3, 4, 2)
+        # Mean over heads: (batch_size, groups_q, groups_kv, sequence_length)
+        attentions = attentions.mean(dim=1)
+        attention_logits = attention_logits.mean(dim=1)
+
+        # Permute to original form and concatenate heads: (batch_size, groups_q * hidden_dim, sequence_length)
+        x = x.permute(0, 3, 1, 4, 2).reshape(batch_size, -1, sequence_length)
+
+        return x, attentions, attention_logits
+
+
 def main():
     # Parameters for the model
     n_variables = 3
@@ -125,7 +189,7 @@ def main():
     tcn_params = {'n_blocks': 2, 'n_layers': 2, 'kernel_size': 2, 'dropout': 0.2}
 
     # Initialize the NAVAR model
-    model = TAMCaD(n_variables, hidden_dim, lambda1, beta, gamma, **tcn_params)
+    model = TAMCaD_T(n_variables, hidden_dim, lambda1, beta, gamma, **tcn_params)
 
     # Generate dummy input data (batch_size, n_variables, sequence_length)
     batch_size = 1
@@ -136,7 +200,7 @@ def main():
     output = model.forward(x,
                            return_causal_matrix=True,
                            ground_truth=torch.randn(n_variables, n_variables, sequence_length) > 0,
-                           temporal_matrix=True)
+                           temporal_matrix=True, return_embeddings=True)
 
     # Print the results
     for k in output.keys():

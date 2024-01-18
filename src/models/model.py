@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from src.models.TAMCaD import TAMCaD
-from src.models.NAVAR import NAVAR
+from scripts.old.NAVAR import NAVAR
 from src.training.result import Result
 from src.utils import count_parameters, receptive_field
 

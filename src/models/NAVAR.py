@@ -1,9 +1,10 @@
 import torch
 from torch import nn
 
-from src.training.result import Result
 from src.models.modules.TCN import TCN
-from src.utils import sliding_window_std
+from src.models.modules.positional_embedding import PositionalEmbedding
+from src.eval.sliding_window_std import sliding_window_std
+from src.eval.soft_auroc import AUROC
 
 
 class NAVAR(nn.Module):
@@ -11,11 +12,10 @@ class NAVAR(nn.Module):
     Implements the Neural Additive Vector Auto-Regression (NAVAR) model.
 
     Args:
-        n_datasets (int): Number of distinct datasets.
-        n_ensembles (int): Number of ensembles per dataset.
         n_variables (int): Number of variables in the time series.
         hidden_dim (int): Hidden dimension size for the model.
         lambda1 (float, optional): Regularization factor.
+        n_ensembles (int): Number of ensembles per dataset. Default is 1 for not using ensembles.
         **kwargs: Additional keyword arguments for the underlying :class:`src.models.tcn.TCN` architecture.
 
     Methods:
@@ -23,77 +23,136 @@ class NAVAR(nn.Module):
         loss_function(y_true, prediction, contributions): Compute the loss for training.
         analysis(prediction, contributions): Perform analysis on the results.
     """
-    def __init__(self, n_datasets, n_ensembles, n_variables, hidden_dim, lambda1, **kwargs):
+
+    def __init__(self, n_variables, hidden_dim, lambda1, **kwargs):
         super().__init__()
         self.lambda1 = lambda1
-        self.groups = n_datasets * n_ensembles * n_variables
 
-        # Initialize the TCN model to learn additive contributions.
-        self.contributions = TCN(
-            in_channels=self.groups * 3,
-            out_channels=self.groups * n_variables,
-            hidden_dim=self.groups * hidden_dim,
-            groups=self.groups,
-            **kwargs
+        self.contributions = nn.Sequential(
+            # Up-sample and add positional embedding
+            PositionalEmbedding(n_variables, hidden_dim),
+            # Initialize the TCN model to learn additive contributions.
+            TCN(
+                in_channels=n_variables * hidden_dim,
+                out_channels=n_variables * n_variables,
+                hidden_dim=n_variables * hidden_dim,
+                groups=n_variables,
+                **kwargs
+            )
         )
 
         # Initialize learnable biases with small values.
-        self.biases = nn.Parameter(torch.ones(n_datasets, n_ensembles, n_variables, 1) * 0.01)
+        self.biases = nn.Parameter(torch.randn(1, n_variables, 1) * 0.01)
 
-    def forward(self, x):
+    def forward(self, x, x_noise_adjusted=None, return_causal_matrix=False, temporal_matrix=False, ground_truth=None):
         """
         Forward pass through the NAVAR model.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, n_datasets, n_ensembles, n_variables * 3, sequence_length).
+            x (torch.Tensor): Input tensor of shape (batch_size, n_variables, sequence_length).
+            x_noise_adjusted (torch.Tensor, optional): Tensor of true mean values of the time series.
+                Shape: (batch_size, n_variables, sequence_length).
+            return_causal_matrix (bool): Flag indicating whether to return the causal matrix.
+            temporal_matrix (bool): Flag to use sliding window for temporal matrices.
+            ground_truth (torch.Tensor, optional): Ground truth tensor for the causal matrix.
 
         Returns:
-            dict: Dictionary containing the prediction and contributions.
+            dict: A dictionary containing various outputs like predictions, loss, and optional metrics.
         """
-        batch_size, n_datasets, n_ensembles, n_var, sequence_length = x.size()
-        n_var = n_var // 3
-
-        x = x.reshape(batch_size, -1, sequence_length)
+        batch_size, n_var, seq_len = x.size()
 
         # Calculate contributions and reshape it.
-        contributions = self.contributions(x).reshape(batch_size, n_datasets, n_ensembles, n_var, n_var, -1)
+        contributions = self.contributions(x).reshape(batch_size, n_var, n_var, -1)
 
         # Sum contributions along dimension 1 and add biases to get the final prediction.
-        prediction = contributions.sum(dim=-3) + self.biases
+        prediction = contributions.sum(dim=1) + self.biases
 
-        return {
-            'prediction': prediction,  # (batch_size, n_datasets, n_ensembles, n_var, seq)
-            'contributions': contributions.transpose(-2, -3)  # (batch_size, n_datasets, n_ensembles, n_var, n_var, seq)
-        }
+        return self.process(x, prediction, contributions, x_noise_adjusted,
+                            return_causal_matrix, temporal_matrix, ground_truth)
 
-    def compute_loss(self, y_true, prediction, contributions):
-        loss = ((prediction - y_true) ** 2).mean()  # MSE loss
-
-        if self.lambda1:
-            # Adding regularization term
-            loss = loss + self.lambda1 * contributions.abs().mean()
-
-        return loss
-
-    def analysis(self, prediction, contributions):
+    def process(self, x, prediction, contributions, x_noise_adjusted=None,
+                return_causal_matrix=False, temporal_matrix=False, ground_truth=None):
         """
-        Perform analysis on the results produced by the model.
+        Processes the outputs of the forward pass, computing losses and other metrics.
 
         Args:
-            prediction (torch.Tensor): Model predictions.
-            contributions (torch.Tensor): Contributions calculated by the model.
+            x (torch.Tensor): Original input tensor of size (batch_size, n_var, seq_len).
+            prediction (torch.Tensor): Prediction tensor from the model
+                of size (batch_size, n_var, seq_len).
+            contributions (torch.Tensor): Contributions tensor from the model
+                of size (batch_size, n_var, n_var, seq_len).
+            x_noise_adjusted (torch.Tensor, optional): Tensor of true mean values of the time series
+                of size (batch_size, n_var, seq_len).
+            return_causal_matrix (bool): Flag indicating whether to return the causal matrix.
+            temporal_matrix (bool): Flag to use sliding window for temporal matrices.
+            ground_truth (torch.Tensor, optional): Ground truth tensor for the causal matrix an is
+                of size (n_var, n_var) or (n_var, n_var, seq_len), corresponding with temporal_matrix flag.
 
         Returns:
-            dict: Dictionary containing analysis results.
+            dict: A dictionary containing the loss, prediction, and optional metrics like causal matrix and AUROC.
         """
-        # Return prediction, contributions, default and temporal causal matrices.
-        sliding_contributions = sliding_window_std(contributions, window=(30, 30), dim=-1)
-        contributions_std = contributions.std(dim=-1)
+        s = contributions.size(-1)
+        regression_loss = nn.functional.mse_loss(x[..., 1-s:], prediction[..., :-1])
+        prediction = prediction.detach()  # (1, n_var, seq_len)
 
-        return Result(
-            prediction=prediction.mean(dim=2),  # (batch_size, n_datasets, n, T)
-            causal_matrix=contributions_std.mean(dim=2),  # (batch_size, n_datasets, n, n)
-            causal_matrix_std=contributions_std.std(dim=2),  # (batch_size, n_datasets, n, n)
-            temporal_causal_matrix=sliding_contributions.mean(dim=2),  # (batch_size, n_datasets, n, n, T)
-            temporal_causal_matrix_std=sliding_contributions.std(dim=2)  # (batch_size, n_datasets, n, n, T)
-        )
+        regularization_loss = self.lambda1 * contributions.abs().mean()
+        contributions = contributions.detach().squeeze(0).transpose(0, 1)  # (n_var, n_var, seq_len)
+
+        result = {
+            'loss': regression_loss + regularization_loss,
+            'prediction': prediction.squeeze(0),
+            'contributions': contributions
+        }
+
+        # Additional computations if noise-adjusted values are provided
+        if x_noise_adjusted is not None:
+            result['noise_adjusted_regression_loss'] = nn.functional.mse_loss(x_noise_adjusted[..., 1 - s:],
+                                                                              prediction[..., :-1])
+
+        # Compute causal matrix and AUROC if needed
+        if return_causal_matrix or ground_truth is not None:
+            if temporal_matrix:
+                causal_matrix = sliding_window_std(contributions, window=(30, 30), dim=-1)
+            else:
+                causal_matrix = contributions.std(dim=-1)
+            result['matrix'] = causal_matrix
+
+            if ground_truth is not None:
+                if temporal_matrix:
+                    ground_truth = ground_truth[..., 1-s:]
+                    causal_matrix = causal_matrix[..., :-1]
+                ground_truth = ground_truth.to(causal_matrix.device)
+                auc, tpr, fpr = AUROC(ground_truth, causal_matrix)
+                result = {**result, 'AUROC': auc, 'TPR': tpr, 'FPR': fpr}
+
+        return result
+
+
+def main():
+    # Parameters for the model
+    n_variables = 3
+    hidden_dim = 16
+    lambda1 = 0.1
+    tcn_params = {'n_blocks': 2, 'n_layers': 2, 'kernel_size': 2, 'dropout': 0.2}
+
+    # Initialize the NAVAR model
+    model = NAVAR(n_variables, hidden_dim, lambda1, **tcn_params)
+
+    # Generate dummy input data (batch_size, n_variables, sequence_length)
+    batch_size = 1
+    sequence_length = 20
+    x = torch.randn(batch_size, n_variables, sequence_length)
+
+    # Run the model
+    output = model.forward(x,
+                           return_causal_matrix=True,
+                           ground_truth=torch.randn(n_variables, n_variables, sequence_length) > 0,
+                           temporal_matrix=True)
+
+    # Print the results
+    for k in output.keys():
+        print(f"{k}:", output[k].item() if output[k].numel() == 1 else output[k].shape)
+
+
+if __name__ == "__main__":
+    main()
