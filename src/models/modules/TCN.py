@@ -15,7 +15,7 @@ class TCN(nn.Module):
     - RecurrentTCN: TCN model with recurrent temporal layers.
     - WeightSharingRecurrentTCN: TCN model with both weight sharing and recurrent temporal layers.
     """
-    def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, kernel_size: int,
+    def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, kernel_size: int = 2,
                  n_blocks: int = 2, n_layers: int = 2, groups: int = 1,
                  dropout: float = 0.0, weight_sharing: bool = False, recurrent: bool = False,
                  use_padding: bool = False):

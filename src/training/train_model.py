@@ -3,25 +3,23 @@ import os.path
 import mlflow
 import torch
 from matplotlib import pyplot as plt
+from torch import nn
 from torch.optim import AdamW
 from tqdm import trange
 
 from environment import GPULAB_JOB_ID, OUTPUT_DIR
 from src.data.visualisations import plot_multi_roc_curve, plot_heatmaps, plot_contemporaneous_relationships
-from src.models.navar import NAVAR
-from src.models.TAMCaD import TAMCaD
-from src.eval.soft_auroc import AUROC, soft_AUROC
-from src.utils import exponential_scheduler_with_warmup, augment_with_sine, count_parameters
+from src.utils import count_parameters, receptive_field
 
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def train_model(
+        model_type: type,
         dataset: dict,
-        model: str,
         lr: float,
         epochs: int,
         weight_decay: float,
-        test_size: float,
-        lambda1: float,
+        test_size: float = 0.3,
         disable_tqdm: bool = False,
         **model_params):
     """
@@ -34,36 +32,42 @@ def train_model(
     - weight_decay: Weight decay for optimizer.
     - true_causal_matrix: Ground truth tensor of size (batch_size, n_variables, n_variables), default is None.
     - disable_tqdm: Boolean to control the display of progress bar.
-    - lambda1: Hyperparameter for loss function.
     - kwargs: Additional arguments for NAVAR model.
 
     Returns:
     - A dictionary of training statistics.
     """
-    model = instantiate_model(model, **model_params, num_variables=dataset['data'].size(-2))
-    all_data, train_data, test_data = prepare_data(**dataset, test_size=test_size)
+    model = model_type(**model_params).to(DEVICE)
+    train_data, test_data, ground_truth = train_test_split(**dataset, test_size=test_size)
 
     # Optimizers
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = exponential_scheduler_with_warmup(epochs, optimizer, start_factor=0.01, end_factor=0.05,
-                                                  warmup_ratio=0.1, cooldown_ratio=0.2)
+
     with mlflow.start_run():
         # train params
-        mlflow.log_params({'model': model, **model_params, 'lr': lr, 'epochs': epochs, 'weight_decay': weight_decay,
-                           'test_size': test_size, 'lambda1': lambda1, 'optimizer': 'AdamW'})
-        mlflow.log_metric('n_params', count_parameters(model, trainable_only=True))
+        mlflow.log_params({
+            'model': str(model_type), **model_params,
+            'lr': lr, 'epochs': epochs, 'weight_decay': weight_decay,
+            'test_size': test_size, 'optimizer': 'AdamW',
+            'n_params': count_parameters(model, trainable_only=True),
+            'receptive_field': receptive_field(**model_params)
+        })
 
-        execute_training(model, train_data, test_data, optimizer, scheduler, epochs, lambda1, disable_tqdm)
+        execute_training(model, train_data, test_data, ground_truth, optimizer, epochs, disable_tqdm)
 
         with torch.no_grad():
             model.eval()
-            create_artifacts(model, **all_data, lambda1=lambda1)
+            create_artifacts(model, test_data)
 
 
-def execute_training(model, train_data, test_data, optimizer, scheduler, epochs, lambda1, disable_tqdm):
+def execute_training(model, train_data, test_data, ground_truth, optimizer, epochs, disable_tqdm):
     for epoch in (pbar := trange(epochs, disable=disable_tqdm or GPULAB_JOB_ID is not None)):
         model.train()
-        epoch_step(model, **train_data, optimizer=optimizer, scheduler=scheduler, lambda1=lambda1)
+        optimizer.zero_grad()
+        output = model(**train_data)
+        output['loss'].backward()
+        optimizer.step()
+        mlflow.log_metrics(output)
 
         if epoch >= 20 and (epoch % 20 == 0 or epoch == epochs - 1):
             with torch.no_grad():
@@ -73,20 +77,6 @@ def execute_training(model, train_data, test_data, optimizer, scheduler, epochs,
                     desc += ', ' + eval_step(epoch, model, **test_data, lambda1=lambda1)
             pbar.set_description(desc)
 
-
-def epoch_step(model, x, y, lambda1, optimizer=None, scheduler=None, **kwargs):
-    if optimizer:
-        optimizer.zero_grad()
-
-    output = model(x)
-    loss = model.loss_function(y, **output, lambda1=lambda1)
-
-    if optimizer:
-        loss.backward()
-        optimizer.step()
-        scheduler.step()
-
-    return output, loss.item()
 
 
 def eval_step(epoch, model, x, y, gt, y_mean, phase, lambda1):
@@ -118,7 +108,7 @@ def eval_step(epoch, model, x, y, gt, y_mean, phase, lambda1):
     return description
 
 
-def create_artifacts(model, x, y, gt, lambda1):
+def create_artifacts(model, test_data):
     artifact_path = os.path.join(OUTPUT_DIR, '.artifacts')
     os.makedirs(artifact_path, exist_ok=True)
 
@@ -159,58 +149,35 @@ def create_artifacts(model, x, y, gt, lambda1):
     os.remove(artifact_path)
 
 
-def instantiate_model(model_name: str, **model_params):
-    if model_name == 'NAVAR':
-        model = NAVAR(**model_params)
-    elif model_name == 'TAMCaD':
-        model = TAMCaD(**model_params)
-    else:
-        raise NotImplementedError('Not supported!')
 
-    if torch.cuda.is_available():
-        model = model.cuda()
-
-    return model
-
-
-def prepare_data(data: torch.Tensor, ground_truth: torch.Tensor = None,
-                 data_mean: torch.Tensor = None, test_size: float = 0):
+def train_test_split(data: torch.Tensor, ground_truth: torch.Tensor = None,
+                     data_noise_adjusted: torch.Tensor = None, test_size: float = 0):
     """Splits data into training and testing sets."""
     # Check for valid test_size
     if not (0.0 <= test_size <= 1.0):
-        raise ValueError("test_size should be between 0.0 and 1.0, inclusive.")
-
-    all_data = {
-        'x': data[..., :-1],
-        'y': data[..., 1:],
-        'gt': ground_truth[..., 1:] if ground_truth is not None else None,
-        'y_mean': data_mean[..., 1:] if data_mean is not None else None
-    }
+        raise ValueError("test_size should be between 0.0 and 1.0.")
 
     train, test = {'phase': 'train'}, {'phase': 'test'}
 
-    if test_size > 0.0:
-        split_size = max(1, int(data.size(-1) * test_size)) + 1
-        train['x'] = data[..., :-split_size - 1]
-        train['y'] = data[..., 1:-split_size]
-        test['x'] = data[..., -split_size:-1]
-        test['y'] = data[..., 1 - split_size:]
-        train['gt'] = ground_truth[..., 1:-split_size] if ground_truth is not None else None
-        test['gt'] = ground_truth[..., 1 - split_size:] if ground_truth is not None else None
-        train['y_mean'] = data_mean[..., 1:-split_size] if data_mean is not None else None
-        test['y_mean'] = data_mean[..., 1 - split_size:] if data_mean is not None else None
+    n_train = int(data.size(-1) * (1.0 - test_size))
+    n_test = data.size(-1) - n_train
+
+    train['x'], test['x'] = data.split([n_train, n_test], dim=-1)
+
+    if data_noise_adjusted:
+        train['x_noise_adjusted'], test['x_noise_adjusted'] = data_noise_adjusted \
+            .split([n_train, n_test], dim=-1)
 
     # make contiguous for efficiency
     if torch.cuda.is_available():
-        all_data = dict_to_cuda(all_data)
         train = dict_to_cuda(train)
         test = dict_to_cuda(test)
+        ground_truth = ground_truth.cuda()
 
-    if test_size <= 0.0:
-        train.update(all_data)
+    if test_size == 0.0:
         test = None
 
-    return all_data, train, test
+    return train, test, ground_truth
 
 
 def dict_to_cuda(a_dict):

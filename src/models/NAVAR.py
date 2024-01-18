@@ -70,7 +70,7 @@ class NAVAR(nn.Module):
         return self.process(x, prediction, contributions, x_noise_adjusted,
                             return_causal_matrix, temporal_matrix, ground_truth)
 
-    def process(self, x, prediction, contributions, x_noise_adjusted=None,
+    def process(self, x, prediction, contributions, create_artifacts=False, x_noise_adjusted=None,
                 return_causal_matrix=False, temporal_matrix=False, ground_truth=None):
         """
         Processes the outputs of the forward pass, computing losses and other metrics.
@@ -91,23 +91,27 @@ class NAVAR(nn.Module):
         Returns:
             dict: A dictionary containing the loss, prediction, and optional metrics like causal matrix and AUROC.
         """
+        metrics, artifacts = {}, {}
         s = contributions.size(-1)
+
         regression_loss = nn.functional.mse_loss(x[..., 1-s:], prediction[..., :-1])
         prediction = prediction.detach()  # (1, n_var, seq_len)
 
         regularization_loss = self.lambda1 * contributions.abs().mean()
         contributions = contributions.detach().squeeze(0).transpose(0, 1)  # (n_var, n_var, seq_len)
 
-        result = {
-            'loss': regression_loss + regularization_loss,
-            'prediction': prediction.squeeze(0),
-            'contributions': contributions
-        }
+        metrics['loss'] = regression_loss + regularization_loss
+
+        if create_artifacts:
+            artifacts = {
+                'prediction': prediction.squeeze(0),
+                'contributions': contributions
+            }
 
         # Additional computations if noise-adjusted values are provided
         if x_noise_adjusted is not None:
-            result['noise_adjusted_regression_loss'] = nn.functional.mse_loss(x_noise_adjusted[..., 1 - s:],
-                                                                              prediction[..., :-1])
+            metrics['noise_adjusted_regression_loss'] = nn.functional.mse_loss(x_noise_adjusted[..., 1 - s:],
+                                                                               prediction[..., :-1])
 
         # Compute causal matrix and AUROC if needed
         if return_causal_matrix or ground_truth is not None:
@@ -115,7 +119,8 @@ class NAVAR(nn.Module):
                 causal_matrix = sliding_window_std(contributions, window=(30, 30), dim=-1)
             else:
                 causal_matrix = contributions.std(dim=-1)
-            result['matrix'] = causal_matrix
+            if create_artifacts:
+                artifacts['matrix'] = causal_matrix
 
             if ground_truth is not None:
                 if temporal_matrix:
