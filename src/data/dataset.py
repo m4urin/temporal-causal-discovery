@@ -3,12 +3,28 @@ import zipfile
 import numpy as np
 import pandas as pd
 import torch
+from typing import Dict, Union
 
 from environment import DATA_DIR
 
 
-def load_dataset(dataset_type: str, name: str):
+def load_dataset(dataset_type: str, name: str) -> Dict[str, Union[str, torch.Tensor]]:
+    """
+    Load a dataset from a specified type and name.
+
+    Args:
+        dataset_type (str): Type of dataset ('causeme', 'synthetic', or 'dream3').
+        name (str): Name of the dataset.
+
+    Returns:
+        dict: A dictionary containing dataset information.
+
+    Raises:
+        ValueError: If an invalid dataset type is provided.
+
+    """
     dataset_path = os.path.join(DATA_DIR, dataset_type, f'{name}.pt')
+
     if os.path.exists(dataset_path):
         return torch.load(dataset_path)
 
@@ -26,7 +42,17 @@ def load_dataset(dataset_type: str, name: str):
     return dataset
 
 
-def load_synthetic_dataset(name):
+def load_synthetic_dataset(name: str) -> Dict[str, Union[str, torch.Tensor]]:
+    """
+    Load a synthetic dataset from a ZIP file.
+
+    Args:
+        name (str): Name of the dataset.
+
+    Returns:
+        dict: A dictionary containing synthetic dataset information.
+
+    """
     with zipfile.ZipFile(os.path.join(DATA_DIR, f'synthetic/{name}.zip'), 'r') as archive:
         with archive.open(f'{name}.pt') as pt_file:
             dataset = torch.load(pt_file)
@@ -34,23 +60,42 @@ def load_synthetic_dataset(name):
     return dataset
 
 
-def load_causeme_dataset(name):
+def load_causeme_dataset(name: str) -> Dict[str, Union[str, torch.Tensor]]:
+    """
+    Load a CauseMe dataset from a ZIP file.
+
+    Args:
+        name (str): Name of the dataset.
+
+    Returns:
+        dict: A dictionary containing CauseMe dataset information.
+
+    """
     with zipfile.ZipFile(os.path.join(DATA_DIR, 'causeme', f"{name}.zip"), 'r') as archive:
         data = np.stack([np.loadtxt(archive.open(name)) for name in sorted(archive.namelist())])
     data = torch.from_numpy(data).float().transpose(-1, -2).unsqueeze(dim=1)
     return {'name': name, 'data': data}
 
 
-def load_dream3_data(name):
+def load_dream3_data(name: str) -> Dict[str, Union[str, torch.Tensor]]:
+    """
+    Load a DREAM3 dataset from a ZIP file.
+
+    Args:
+        name (str): Name of the dataset.
+
+    Returns:
+        dict: A dictionary containing DREAM3 dataset information.
+
+    """
     with zipfile.ZipFile(os.path.join(DATA_DIR, f'dream3/{name}.zip'), 'r') as archive:
-        # Read the TSV file into a Pandas DataFrame
         with archive.open(f'{name}.tsv') as tsv_file:
             df = pd.read_csv(tsv_file, sep='\t', dtype='float32')
         with archive.open(f'{name}_gt.txt') as txt_file:
             txt_lines = [line.decode('utf-8').strip() for line in txt_file]
 
     data = torch.tensor(df.values, dtype=torch.float32).reshape(-1, 21, 101).transpose(-1, -2)
-    data = data[:, 1:]  # remove time column
+    data = data[:, 1:]  # Remove time column
 
     ground_truth = torch.zeros((100, 100), dtype=torch.float32)
     # Read the groundtruth data from the file
@@ -61,12 +106,22 @@ def load_dream3_data(name):
         value = float(value)
         # Update the matrix with the groundtruth value
         ground_truth[source_node, target_node] = value
-    ground_truth = ground_truth.unsqueeze(0)  # add batch dimension
+    ground_truth = ground_truth.unsqueeze(0)  # Add batch dimension
 
     return {'name': name, 'data': data, 'ground_truth': ground_truth}
 
 
-def normalize_dataset(dataset: dict) -> dict:
+def normalize_dataset(dataset: Dict[str, Union[str, torch.Tensor]]) -> Dict[str, Union[str, torch.Tensor]]:
+    """
+    Normalize the dataset.
+
+    Args:
+        dataset (dict): A dictionary containing dataset information.
+
+    Returns:
+        dict: A dictionary containing normalized dataset information.
+
+    """
     data_mean = dataset['data'].mean(dim=-1, keepdim=True)
     data_std = dataset['data'].std(dim=-1, keepdim=True)
 
@@ -76,7 +131,7 @@ def normalize_dataset(dataset: dict) -> dict:
         'ground_truth': dataset['ground_truth']
     }
     if 'data_noise_adjusted' in dataset:
-        # use the same mean and std
+        # Use the same mean and std
         normalized_dataset['data_noise_adjusted'] = (dataset['data_noise_adjusted'] - data_mean) / data_std
 
     return normalized_dataset
