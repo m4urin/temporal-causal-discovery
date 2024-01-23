@@ -137,7 +137,30 @@ def normalize_dataset(dataset: Dict[str, Union[str, torch.Tensor]]) -> Dict[str,
     return normalized_dataset
 
 
+def save_synthetic_dataset(name: str, dataset: Dict[str, Union[str, torch.Tensor]]):
+    """
+    Save a synthetic dataset to a ZIP file as a .pt file.
+
+    Args:
+        name (str): Name of the dataset.
+        dataset (dict): A dictionary containing synthetic dataset information.
+
+    """
+    if 'name' in dataset:
+        del dataset['name']
+
+    # Create a directory for the synthetic datasets if it doesn't exist
+    synthetic_dir = os.path.join(DATA_DIR, 'synthetic')
+    os.makedirs(synthetic_dir, exist_ok=True)
+
+    # Create a ZIP file for the dataset
+    with zipfile.ZipFile(os.path.join(synthetic_dir, f'{name}.zip'), 'w', zipfile.ZIP_DEFLATED) as archive:
+        # Save the dataset as a .pt file within the ZIP archive
+        with archive.open(f'{name}.pt', 'w') as pt_file:
+            torch.save(dataset, pt_file)
+
+
 if __name__ == '__main__':
-    data_frame = load_dataset('synthetic', 'synthetic_N-5_T-500_K-6')
+    data_frame = load_dataset('synthetic', 'sample_dataset')
     for k, v in data_frame.items():
         print(f"{k}: {v.shape if isinstance(v, torch.Tensor) else v}")
