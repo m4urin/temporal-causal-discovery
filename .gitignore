@@ -1,7 +1,7 @@
 # project files
 .idea/
 outputs/mlruns
-outputs/.artifacts
+outputs/artifacts
 tests/
 *_ignore.*
 *Digraph.gv.svg
