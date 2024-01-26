@@ -1,3 +1,6 @@
+import bz2
+import hashlib
+import json
 import os
 import zipfile
 import numpy as np
@@ -5,7 +8,16 @@ import pandas as pd
 import torch
 from typing import Dict, Union
 
-from environment import DATA_DIR
+from environment import DATA_DIR, OUTPUT_DIR
+
+"""
+Structure of the dataset Dictionary:
+In the CauseMe project, datasets are represented as dictionaries with the following possible keys:
+- 'name' (str): The name of the dataset, which typically includes information about its source or parameters.
+- 'data' (torch.Tensor): Represents observation data.
+- 'data_noise_adjusted' (torch.Tensor, optional): Represents observations with noise adjustments applied.
+- 'ground_truth' (torch.Tensor, optional): Represents the ground truth for comparison and evaluation.
+"""
 
 
 def load_dataset(dataset_type: str, name: str) -> Dict[str, Union[str, torch.Tensor]]:
@@ -160,7 +172,50 @@ def save_synthetic_dataset(name: str, dataset: Dict[str, Union[str, torch.Tensor
             torch.save(dataset, pt_file)
 
 
+def save_causeme_predictions(model_name: str, dataset: Dict[str, torch.Tensor], scores: torch.Tensor, parameters: Dict[str, int], method_sha: str):
+    """
+    Save predicted ground truths for a CauseMe experiment, ready to be uploaded to the website.
+
+    Args:
+        model_name (str): Name of the model used.
+        dataset (dict): A dictionary containing dataset information.
+        scores (torch.Tensor): Predicted scores.
+        parameters (dict): Experiment parameters.
+        method_sha (str): SHA identifier for the method.
+
+    """
+    # Map method_sha to standard identifiers if needed
+    if method_sha == 'NAVAR':
+        method_sha = "e0ff32f63eca4587b49a644db871b9a3"
+    if method_sha == 'TAMCaD':
+        method_sha = "8fbf8af651eb4be7a3c25caeb267928a"
+
+        # Create a data dictionary
+    data = {
+        'experiment': dataset['name'],
+        'model': dataset['name'].split('_')[0],
+        'parameter_values': ','.join([f'{k}={v}' for k, v in parameters.items()]),
+        'method_sha': method_sha,
+        'scores': scores.reshape(scores.size(0), -1).detach().cpu().numpy().tolist()
+    }
+
+    # Serialize data and calculate MD5 checksum
+    data = json.dumps(data).encode('latin1')
+    md5 = hashlib.md5(data).digest().hex()[:8]
+
+    # Create the directory if it doesn't exist
+    dir_path = os.path.join(OUTPUT_DIR, 'causeme_results')
+    os.makedirs(dir_path, exist_ok=True)
+
+    # Save the data as a compressed JSON file
+    file_path = os.path.join(dir_path, f'{model_name}_{dataset["name"]}_{md5}.json.bz2')
+    with bz2.BZ2File(file_path, 'w') as bz2_file:
+        bz2_file.write(data)
+
+    print('CauseMe predictions written to:', file_path)
+
+
 if __name__ == '__main__':
     data_frame = load_dataset('synthetic', 'sample_dataset')
-    for k, v in data_frame.items():
-        print(f"{k}: {v.shape if isinstance(v, torch.Tensor) else v}")
+    for _k, _v in data_frame.items():
+        print(f"{_k}: {_v.shape if isinstance(_v, torch.Tensor) else _v}")
