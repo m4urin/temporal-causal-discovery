@@ -87,6 +87,81 @@ def generate_architecture_options(max_lags, marge, minimum_num_options=1,
     return [{'n_blocks': b, 'n_layers_per_block': l, 'kernel_size': k} for b, l, k in valids]
 
 
+# --------- Datasets ---------
+
+def load_data(data_dir: str, name: str):
+    """ Load and preprocess data from a zip file. """
+    if data_dir == 'causeme':
+        return load_causeme_data(name)
+    if data_dir == 'synthetic':
+        return load_synthetic_data(name)
+    raise ValueError(f"Cannot load '{data_dir}'.")
+
+
+def load_synthetic_data(name: str):
+    """ Load and preprocess synthetic data from a zip file. """
+    directory = os.path.join(DATA_DIR, 'synthetic')
+    pt_file = os.path.join(directory, f"{name}.pt")
+
+    if not os.path.exists(pt_file):
+        with zipfile.ZipFile(os.path.join(directory, f"{name}.zip"), 'r') as zip_ref:
+            zip_ref.extractall(directory)
+
+    data = torch.load(pt_file)
+    os.remove(pt_file)
+
+    return normalize_dataset(Dataset(
+        data_dir='synthetic',
+        name=name,
+        data=data['data'].unsqueeze(0),
+        data_mean=data['data_mean'].unsqueeze(0),
+        ground_truth=data['ground_truth'].unsqueeze(0).float()
+    ))
+
+
+def load_causeme_data(name: str):
+    """ Load and preprocess CauseMe data from a zip file. """
+    zip_file = os.path.join(DATA_DIR, 'causeme', f"{name}.zip")
+
+    with zipfile.ZipFile(zip_file, 'r') as f:
+        data = np.stack([np.loadtxt(f.open(name)) for name in sorted(f.namelist())])
+
+    data = torch.from_numpy(data).float().transpose(-1, -2).unsqueeze(dim=1)
+
+    return normalize_dataset(Dataset('causeme', name, data))
+
+
+def normalize_dataset(dataset: Dataset) -> Dataset:
+    means = dataset.data.mean(dim=-1, keepdim=True)
+    stds = dataset.data.std(dim=-1, keepdim=True)
+
+    dataset.data = (dataset.data - means) / stds
+    if dataset.data_mean is not None:
+        dataset.data_mean = (dataset.data_mean - means) / stds
+
+    return dataset
+
+
+def write_causeme_predictions(model, dataset_name, scores, **parameter_values):
+    data = {
+        'experiment': dataset_name,
+        'model': dataset_name.split('_')[0],
+        'parameter_values': ', '.join([f'{k}={v}' for k, v in parameter_values.items()]),
+        'method_sha': "e0ff32f63eca4587b49a644db871b9a3" if model == 'NAVAR' else "8fbf8af651eb4be7a3c25caeb267928a",
+        'scores': scores.reshape(scores.size(0), -1).detach().cpu().numpy().tolist()
+    }
+    data = json.dumps(data).encode('latin1')
+    md5 = hashlib.md5(data).digest().hex()[:8]
+
+    dir_path = os.path.join(OUTPUT_DIR, 'artifacts')
+    os.makedirs(dir_path, exist_ok=True)
+    filepath = os.path.join(dir_path, f'{model}_{dataset_name}_{md5}.json.bz2')
+
+    with bz2.BZ2File(filepath, 'w') as bz2_file:
+        bz2_file.write(data)
+
+    return filepath
+
 
 # --------- PyTorch Functions ---------
 
@@ -578,33 +653,27 @@ def get_method_simple_description(model, weight_sharing=False, recurrent=False,
     return "-".join(sub_models)
 
 
-def get_method_hp_description(model, hidden_dim, lambda1, architecture,
-                              n_heads, softmax_method, recurrent=False, aleatoric=False, epistemic=False,
-                              weight_sharing=False, **args):
+def get_method_hp_description(model_str, hidden_dim, lambda1, architecture,
+                              n_heads, softmax_method, recurrent=False, weight_sharing=False, uncertainty_aware=None,
+                              **args):
     kernel_size = architecture['kernel_size']
     n_layers_per_block = architecture['n_layers_per_block']
     n_blocks = architecture['n_blocks']
 
-    if model == 'NAVAR':
+    if model_str == 'NAVAR':
         method_sha = "e0ff32f63eca4587b49a644db871b9a3"
-    elif model == 'TAMCaD':
+    elif model_str == 'TAMCaD':
         method_sha = "8fbf8af651eb4be7a3c25caeb267928a"
     else:
         raise ValueError("not a valid model")
 
     result = []
-    if weight_sharing:
-        result.append('WS')
-    if recurrent:
-        result.append('Rec')
-    if epistemic:
-        result.append('Epistemic')
-    elif aleatoric:
-        result.append('Aleatoric')
+    if uncertainty_aware:
+        result.append('UA')
     result = "-".join(result)
 
     params = f""
-    if model == 'TAMCaD':
+    if model_str == 'TAMCaD':
         params += f"n_heads={n_heads}, "  # beta={pretty_number(beta)}, "  {softmax_method},
     params += f"dim={hidden_dim}, b_n_k=({n_blocks},{n_layers_per_block},{kernel_size})"  # layers_per_block={n_layers_per_block}, " \
     # f"kernel_size={kernel_size}, lambda1={pretty_number(lambda1)}"

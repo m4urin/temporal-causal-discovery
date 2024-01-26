@@ -1,35 +1,31 @@
+import numpy as np
 import torch
 from torch import nn
 
-from src.models.modules.TCN import TCN
-from src.models.modules.positional_embedding import PositionalEmbedding
+from src.models.TCN import TCN
 from src.eval.soft_auroc import AUROC, soft_AUROC
 from src.utils import min_max_normalization
 
 
 class TAMCaD_UA(nn.Module):
-    def __init__(self, n_variables, hidden_dim, lambda1, beta, gamma, p=0.7, n_ensembles=1, **kwargs):
+    def __init__(self, n_variables, hidden_dim, lambda1, gamma, p=0.5, n_ensembles=1, **kwargs):
         super().__init__()
         self.gamma = gamma  # continuous matrices
+        self.lambda1 = lambda1
         self.hidden_dim = hidden_dim
         self.n_variables = n_variables
         self.n_ensembles = n_ensembles
         self.groups = n_variables * n_ensembles
 
         if n_ensembles > 1:
-            self.bernoulli_mask = lambda1 * torch.bernoulli(torch.full((1, n_variables, n_ensembles, n_variables, 1), p))
+            self.register_buffer('bernoulli_mask', torch.rand(1, n_ensembles, n_variables, n_variables, 1) < p)
 
-        self.tcn = nn.Sequential(
-            # Up-sample and add positional embedding
-            PositionalEmbedding(n_variables, hidden_dim, n_ensembles),
-            # Initialize the TCN model to learn additive contributions.
-            TCN(
-                in_channels=self.groups * hidden_dim,
+        self.tcn = TCN(
+                in_channels=self.groups,
                 out_channels=self.groups * (hidden_dim + 2 * n_variables),
                 hidden_dim=self.groups * hidden_dim,
                 groups=self.groups,
                 **kwargs
-            )
         )
         self.prediction = nn.Sequential(
             nn.Conv1d(in_channels=self.groups * hidden_dim,
@@ -41,12 +37,12 @@ class TAMCaD_UA(nn.Module):
                       kernel_size=1, groups=self.groups)
         )
 
-    def forward(self, x, x_noise_adjusted=None, return_causal_matrix=False, ground_truth=None, mask=None):
+    def forward(self, x, x_noise_adjusted=None, create_artifacts=False, ground_truth=None, mask=None, temporal_matrix=False):
 
         batch_size, n_var, seq_len = x.size()
 
-        context, attn_mean, attn_var = self.tcn(x)\
-            .reshape(batch_size, n_var, self.n_ensembles, 2 * n_var + self.hidden_dim, -1)\
+        context, attn_mean, attn_var = self.tcn(x.repeat(1, self.n_ensembles, 1)) \
+            .reshape(batch_size, self.n_ensembles, n_var, 2 * n_var + self.hidden_dim, -1) \
             .split([self.hidden_dim, n_var, n_var], dim=-2)
 
         s = context.size(-1)
@@ -63,17 +59,16 @@ class TAMCaD_UA(nn.Module):
             attentions = torch.softmax(torch.masked_fill(attention_logits, mask, -1e9), dim=-2)
 
         # x: (batch_size, n_var * hidden_dim, sequence_length)
-        z = torch.einsum('biejt, bjedt -> biedt', attentions, context)\
+        z = torch.einsum('beijt, bejdt -> beidt', attentions, context) \
             .reshape(batch_size, -1, s)
 
-        prediction = self.prediction(z)\
-            .reshape(1, n_var, self.n_ensembles, s).transpose(1, 2)  # (1, n_ensembles, n_var, seq_len)
+        prediction = self.prediction(z).reshape(1, self.n_ensembles, n_var, s)  # (1, n_ensembles, n_var, seq_len)
 
-        return self.process(x, prediction, attentions, attention_logits, attn_var, x_noise_adjusted,
-                            return_causal_matrix, ground_truth)
+        return self.process(x, prediction, attentions, attn_mean, attn_var, x_noise_adjusted,
+                            create_artifacts, ground_truth, temporal_matrix)
 
-    def process(self, x, prediction, attentions, attention_logits, attention_logits_var, x_noise_adjusted=None,
-                return_causal_matrix=False, ground_truth=None):
+    def process(self, x, prediction, attentions, attention_logits, attention_logits_var,
+                x_noise_adjusted, create_artifacts, ground_truth, temporal_matrix):
         """
         Processes the outputs of the forward pass, computing losses and other metrics.
 
@@ -89,38 +84,40 @@ class TAMCaD_UA(nn.Module):
                 of size (batch_size, n_var, n_ensembles, n_var, seq_len).
             x_noise_adjusted (torch.Tensor, optional): Tensor of true mean values of the time series
                 of size (batch_size, n_var, seq_len).
-            return_causal_matrix (bool): Flag indicating whether to return the causal matrix.
+            create_artifacts (bool): Flag indicating whether to return the artifacts.
             ground_truth (torch.Tensor, optional): Ground truth tensor for the causal matrix is of size (n_var, n_var).
 
         Returns:
             dict: A dictionary containing the loss, prediction, and optional metrics like causal matrix and AUROC.
         """
+        metrics, artifacts = {}, {}
+
         s = attention_logits.size(-1)
         regression_loss = (x[:, None, :, 1 - s:] - prediction[..., :-1]).pow(2).mean()
         prediction = prediction.detach().mean(dim=1)  # (1, n_var, seq_len)
 
         regularization = self.gamma * torch.diff(attention_logits, dim=-1).abs().mean()
         if self.n_ensembles > 1:
-            regularization = regularization + torch.mean(self.bernoulli_mask * attentions)
+            mask_loss = torch.masked_fill(attentions, self.bernoulli_mask, value=0).mean()
+            regularization = regularization + self.lambda1 * mask_loss
 
         # to size (n_ensembles, n_var, n_var, seq_len)
-        attention_logits = attention_logits.detach().squeeze(0).transpose(0, 1)  # (n_ens, n_var, n_var, seq_len)
-        attention_logits_var = attention_logits_var.detach().squeeze(0).transpose(0, 1)  # (n_ens, n_var, n_var, seq_len)
+        attention_logits = attention_logits.detach().squeeze(0)  # (n_ens, n_var, n_var, seq_len)
+        attention_logits_var = attention_logits_var.detach().squeeze(0)  # (n_ens, n_var, n_var, seq_len)
 
-        result = {
-            'loss': regression_loss + regularization,
-            'prediction': prediction.squeeze(0)
-        }
+        metrics['loss'] = regression_loss + regularization
+        if create_artifacts:
+            artifacts = {
+                'prediction': prediction.squeeze(0)
+            }
 
         # Additional computations if noise-adjusted values are provided
         if x_noise_adjusted is not None:
-            result['noise_adjusted_regression_loss'] = nn.functional.mse_loss(x_noise_adjusted[..., 1 - s:],
-                                                                              prediction[..., :-1])
+            metrics['noise_adjusted_regression_loss'] = nn.functional.mse_loss(x_noise_adjusted[..., 1 - s:],
+                                                                               prediction[..., :-1])
 
         # Compute causal matrix and AUROC if needed
-        if return_causal_matrix or ground_truth is not None:
-            assert not self.training, 'causal matrix should not be sampled from variational distribution, ' \
-                                      'use model.eval()'
+        if create_artifacts or ground_truth is not None:
 
             attn_logits_mean = attention_logits.mean(dim=0)  # (n_var, n_var, seq_len)
             attn_logits_ep = attention_logits.std(dim=0)  # (n_var, n_var, seq_len)
@@ -131,33 +128,41 @@ class TAMCaD_UA(nn.Module):
             matrix_al = attn_logits_al.mean(dim=-1)  # (n_var, n_var)
 
             matrix_mean = min_max_normalization(matrix_mean, min_val=0.0, max_val=1.0)
-
-            result = {
-                'attention_logits': attn_logits_mean,
-                'attention_logits_ep': attn_logits_ep,
-                'attention_logits_al': attn_logits_al,
-                'matrix': matrix_mean,
-                'matrix_ep': matrix_ep,
-                'matrix_al': matrix_al,
-                **result
-            }
+            matrix_temporal = min_max_normalization(attn_logits_mean, min_val=0.0, max_val=1.0)
+            if create_artifacts:
+                artifacts.update({
+                    'attention_logits': attn_logits_mean,
+                    'attention_logits_ep': attn_logits_ep,
+                    'attention_logits_al': attn_logits_al,
+                    'matrix': matrix_mean,
+                    'matrix_ep': matrix_ep,
+                    'matrix_al': matrix_al,
+                    'matrix_temporal': matrix_temporal
+                })
 
             if ground_truth is not None:
-                ground_truth = ground_truth.to(matrix_mean.device)
+                eval_matrix = matrix_mean
+                eval_matrix_ep = matrix_ep
+                if temporal_matrix:
+                    eval_matrix = matrix_temporal[..., :-1]
+                    eval_matrix_ep = attn_logits_ep[..., :-1]
+                    ground_truth = ground_truth[..., 1 - s:]
+                ground_truth = ground_truth.to(eval_matrix.device)
 
-                auc, tpr, fpr = AUROC(ground_truth, matrix_mean)
-                result = {**result, 'AUROC': auc, 'TPR': tpr, 'FPR': fpr}
+                auc, tpr, fpr = AUROC(ground_truth, eval_matrix)
+                soft_auc, soft_tpr, soft_fpr = soft_AUROC(ground_truth, eval_matrix, eval_matrix_ep)
 
-                auc, tpr, fpr = soft_AUROC(ground_truth, matrix_mean, matrix_ep)
-                result = {**result, 'soft_AUROC': auc, 'soft_TPR': tpr, 'soft_FPR': fpr}
+                metrics.update({'AUROC': auc, 'soft_AUROC': soft_auc})
+                if create_artifacts:
+                    artifacts.update({'TPR': tpr, 'FPR': fpr, 'soft_TPR': soft_tpr, 'soft_FPR': soft_fpr})
 
-        return result
+        return metrics, artifacts
 
 
 def main():
     # Parameters for the model
-    n_variables = 3
-    hidden_dim = 16
+    n_variables = 5
+    hidden_dim = 32
     lambda1, beta, gamma = 0.1, 0.1, 0.1
     tcn_params = {'n_blocks': 2, 'n_layers': 2, 'kernel_size': 2, 'dropout': 0.2}
 
@@ -170,14 +175,18 @@ def main():
     x = torch.randn(batch_size, n_variables, sequence_length)
 
     # Run the model
-    output = model.forward(x,
-                           return_causal_matrix=True,
-                           ground_truth=torch.randn(n_variables, n_variables) > 0,
-                           x_noise_adjusted=torch.randn(batch_size, n_variables, sequence_length))
+    metrics, artifacts = model.forward(x,
+                                       ground_truth=torch.randn(n_variables, n_variables) > 0,
+                                       x_noise_adjusted=torch.randn(batch_size, n_variables, sequence_length))
 
     # Print the results
-    for k in output.keys():
-        print(f"{k}:", output[k].item() if output[k].numel() == 1 else output[k].shape)
+    print('Metrics:')
+    for k in metrics.keys():
+        print(f"{k}:", metrics[k].item() if metrics[k].numel() == 1 else metrics[k].shape)
+    if len(artifacts) > 0:
+        print('\nArtifacts:')
+        for k in artifacts.keys():
+            print(f"{k}:", artifacts[k].item() if artifacts[k].numel() == 1 else artifacts[k].shape)
 
 
 if __name__ == "__main__":

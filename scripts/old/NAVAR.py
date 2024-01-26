@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from src.training.result import Result
-from src.models.modules.TCN import TCN
+from src.models.TCN import TCN
 from src.utils import sliding_window_std
 
 

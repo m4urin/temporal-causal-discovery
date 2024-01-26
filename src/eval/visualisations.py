@@ -25,8 +25,8 @@ def plot_contemporaneous_relationships(
         smooth (float, optional): Smoothing parameter for the line smoothing (>0). Defaults to None.
 
     Example:
-        >>> data = np.random.rand(3, 4, 4, 100)
-        >>> data[0] = (data[0] > 0.5).astype(float)
+        >>> data = np.random.rand(3, 4, 4, 200) *0.5
+        >>> data[0] = (data[0] > 0.4).astype(float)
         >>> plot_contemporaneous_relationships(*data, \
                                                causal_links=[(0, 1), (1, 2), (2, 0)], \
                                                names=['Ground truth', 'Model 1', 'Model 2'])
@@ -64,8 +64,8 @@ def plot_contemporaneous_relationships(
 
     # Plot each causal link
     for i, (a, b) in enumerate(causal_links):
-        im = axs[i].imshow(temporal_matrices[:, b, a], aspect='auto', cmap='Blues',
-                           interpolation='nearest', origin='upper')
+        im = axs[i].imshow(temporal_matrices[:, b, a], aspect='auto', cmap='viridis',
+                           interpolation='nearest', origin='upper', vmin=0.0, vmax=1.0)
         axs[i].set_title(r"$X^{(" + str(a) + ")} \\;\\to \\; X^{(" + str(b) + ")}$")
         axs[i].set_xlabel('Time')
         axs[i].set_yticks([])
@@ -78,6 +78,60 @@ def plot_contemporaneous_relationships(
 
     # Add a colorbar to the figure
     plt.colorbar(first_im, cax=cax)
+
+    # Ensure the layout fits without overlaps
+    plt.tight_layout()
+
+
+def plot_all_contemporaneous_relationships(temporal_matrix, name: str = None, smooth: float = None):
+    """
+    Plot the contemporaneous (synchronous) causal relationships between variables over time for a single model.
+
+    Args:
+        temporal_matrix (array-like): Causal matrix for a single model.
+            The shape should be of size (n_vars, n_vars, seq_length).
+        name (str, optional): Name of the temporal matrix, e.g., 'Model 1'.
+            Defaults to None.
+        smooth (float, optional): Smoothing parameter for the line smoothing (>0). Defaults to None.
+
+    Example:
+        >>> data = np.random.rand(4, 4, 100)
+        >>> plot_all_contemporaneous_relationships(data, name='Model 1')
+        >>> plt.show()
+    """
+    # Convert matrix to NumPy format
+    temporal_matrix = np.asarray(temporal_matrix)
+
+    # Apply line smoothing if specified
+    if smooth:
+        temporal_matrix = smooth_line(temporal_matrix, sigma=smooth, axis=-1)
+
+    n_vars, _, seq_length = temporal_matrix.shape
+
+    # Generate all possible causal links
+    causal_links = [(i, j) for i in range(n_vars) for j in range(n_vars)]
+
+    # Initialize the figure
+    fig, ax = plt.subplots(figsize=(7, len(causal_links) / 4))
+
+    # Prepare data for plotting
+    plot_data = np.array([temporal_matrix[j, i] for i, j in causal_links])
+
+    # Create the image
+    im = ax.imshow(plot_data, aspect='auto', cmap='viridis',
+                   interpolation='nearest', origin='upper', vmin=0.0, vmax=1.0)
+
+    # Set titles and labels
+    ax.set_title(f'Contemporaneous Relationships in {name}' if name else 'Contemporaneous Relationships')
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Causal Links')
+
+    # Set the y-ticks and labels for causal links
+    ax.set_yticks(range(len(causal_links)))
+    ax.set_yticklabels([f'X{a} -> X{b}' for a, b in causal_links])
+
+    # Add a colorbar to the figure
+    plt.colorbar(im, ax=ax)
 
     # Ensure the layout fits without overlaps
     plt.tight_layout()
@@ -221,7 +275,7 @@ def plot_heatmaps(*matrices, names: List[str] = None):
     matrices = [to_numpy(m) for m in matrices]
 
     # Create a figure and layout grid for the heatmaps and colorbar
-    fig = plt.figure(figsize=(1.5 * len(matrices) + 0.9, 1.9))
+    fig = plt.figure(figsize=(2 * len(matrices) + 0.9, 3))
     gs = gridspec.GridSpec(1, len(matrices) + 1, width_ratios=[1.0] * len(matrices) + [0.1])
 
     # If no names are provided, create a list of None names

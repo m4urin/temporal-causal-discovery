@@ -24,6 +24,12 @@ class Dataset:
     data_mean: Optional[torch.Tensor] = field(default=None)
     ground_truth: Optional[torch.Tensor] = field(default=None)
 
+    def as_dict(self):
+        return {
+            'name': self.name,
+            'data': self.data[:, 0]
+        }
+
 
 @dataclass
 class ModelConfig:

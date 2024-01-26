@@ -4,8 +4,11 @@ from matplotlib import pyplot as plt
 
 
 def AUROC(labels: torch.Tensor, y_pred: torch.Tensor, batched=False):
-    if not torch.all((labels == 0) | (labels == 1)) or labels.shape != y_pred.shape:
-        raise ValueError("labels must contain only 0's and 1's and have the same shape as y_pred.")
+    if not torch.all((labels == 0) | (labels == 1)):
+        raise ValueError("labels must contain only 0's and 1's.")
+    if labels.shape != y_pred.shape:
+        raise ValueError(f"labels must have the same shape as y_pred: {labels.shape}, {y_pred.shape}")
+
     if not batched:
         labels = labels.unsqueeze(0)
         y_pred = y_pred.unsqueeze(0)
@@ -47,8 +50,11 @@ def soft_AUROC(labels: torch.Tensor, y_mean: torch.Tensor, y_std: torch.Tensor, 
     """
     Compute the soft ROC AUC based on given predictions and their associated uncertainties.
     """
-    if not torch.all((labels == 0) | (labels == 1)) or labels.shape != y_mean.shape or labels.shape != y_std.shape:
-        raise ValueError("labels must contain only 0's and 1's and have the same shape as y_pred.")
+    if not torch.all((labels == 0) | (labels == 1)):
+        raise ValueError("labels must contain only 0's and 1's.")
+    if labels.shape != y_mean.shape or labels.shape != y_std.shape:
+        raise ValueError(f"labels must have the same shape as y_mean and y_std: "
+                         f"{labels.shape}, {y_mean.shape}, {y_std.shape}")
 
     if not batched:
         labels = labels.unsqueeze(0)

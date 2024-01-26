@@ -3,9 +3,6 @@ from pprint import pprint
 
 import torch
 
-from src.data.visualisations import plot_heatmaps
-from src.utils import load_synthetic_data
-
 
 def pretty_print_dict(d: dict):
     def tensor_to_size(sub_d: dict):
