@@ -4,6 +4,7 @@ outputs/mlruns
 outputs/artifacts
 tests/
 *_ignore.*
+*test.py
 *Digraph.gv.svg
 *.pt
 *.png
