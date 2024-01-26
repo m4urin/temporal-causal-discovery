@@ -7,6 +7,7 @@ tests/
 *Digraph.gv.svg
 *.pt
 *.png
+*.jpg
 *.svg
 
 # Byte-compiled / optimized / DLL files
