@@ -8,7 +8,7 @@ from torch import nn
 from torch.optim import AdamW
 from tqdm import trange
 
-from environment import TEST_DIR
+from io import TEST_DIR
 from src.utils import exponential_scheduler_with_warmup, get_model_device
 from src.data.visualisations import plot_3d_surface, plot_3d_scatter_points
 

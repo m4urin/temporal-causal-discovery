@@ -2,7 +2,7 @@ import os
 
 import torch
 
-from environment import OUTPUT_DIR
+from io import OUTPUT_DIR
 from src.models.SimpleAttention_ignore import SimpleAttention, train_model
 from src.utils import load_causeme_data, ConsoleProgressBar, write_bz2_file
 

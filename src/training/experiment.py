@@ -6,7 +6,7 @@ import torch
 import mlflow
 from mlflow import MlflowClient
 
-from environment import OUTPUT_DIR
+from io import OUTPUT_DIR
 
 
 def save_artifacts(experiment_name, experiment_run, model, results):

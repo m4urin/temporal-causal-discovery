@@ -25,7 +25,7 @@ from torch import nn
 from torch.optim import lr_scheduler
 from tqdm import trange
 
-from environment import DATA_DIR, OUTPUT_DIR
+from io import DATA_DIR, OUTPUT_DIR
 from src.config import Dataset
 
 

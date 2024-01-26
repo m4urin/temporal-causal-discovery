@@ -4,7 +4,7 @@ import torch
 from mlflow import MlflowClient
 from torch.optim import AdamW
 from tqdm import trange
-from environment import GPULAB_JOB_ID
+from io import GPULAB_JOB_ID
 from src.training.experiment import get_all_metrics_params, save_artifacts
 from src.utils import count_parameters, receptive_field, move_to
 
