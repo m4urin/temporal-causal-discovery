@@ -45,7 +45,7 @@ def load_dataset(dataset_type: str, name: str) -> Dict[str, Union[str, torch.Ten
     elif dataset_type == 'synthetic':
         dataset = load_synthetic_dataset(name)
     elif dataset_type == 'dream3':
-        dataset = load_dream3_data(name)
+        dataset = load_dream3_dataset(name)
     else:
         raise ValueError(f"Cannot load '{dataset_type}'. Choose from: causeme, dream3, synthetic")
 
@@ -89,7 +89,7 @@ def load_causeme_dataset(name: str) -> Dict[str, Union[str, torch.Tensor]]:
     return {'name': name, 'data': data}
 
 
-def load_dream3_data(name: str) -> Dict[str, Union[str, torch.Tensor]]:
+def load_dream3_dataset(name: str) -> Dict[str, Union[str, torch.Tensor]]:
     """
     Load a DREAM3 dataset from a ZIP file.
 

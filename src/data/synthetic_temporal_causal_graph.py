@@ -9,7 +9,7 @@ from src.data.non_linear_relationships import get_non_linear_functions
 class SyntheticTCG(nn.Module):
     """
     A synthetic temporal causal graph generator that creates a graph with specified properties.
-    It includes internal and external nodes, functional relationships, and connectivity constraints.
+    It includes functional relationships, and connectivity constraints.
     """
     def __init__(self, num_internal_nodes, max_lags, min_incoming_connections=1,
                  num_external_nodes=0, num_ext_connections=1):
@@ -35,10 +35,10 @@ class SyntheticTCG(nn.Module):
         then constructs a new graph with the modified matrix. Note that functional relationships are not cloned.
         """
         new_causal_matrix = self.causal_matrix.clone()
-        a1, a2, a3 = random.choice(torch.nonzero(~new_causal_matrix)).tolist()  # indices to add
-        r1, r2, r3 = random.choice(torch.nonzero(new_causal_matrix)).tolist()  # indices to remove
-        new_causal_matrix[a1, a2, a3] = True
-        new_causal_matrix[r1, r2, r3] = False
+        a1, a2, a3 = random.choice(torch.nonzero(new_causal_matrix)).tolist()  # indices to add
+        #r1, r2, r3 = random.choice(torch.nonzero(new_causal_matrix)).tolist()  # indices to remove
+        new_causal_matrix[a1, a2, a3] = False
+        #new_causal_matrix[r1, r2, r3] = False
 
         new_graph = SyntheticTCG(self.num_internal_nodes, self.max_lags, self.min_incoming_connections,
                                  self.num_external_nodes, self.num_external_nodes)
@@ -70,7 +70,7 @@ class SyntheticTCG(nn.Module):
         for i in range(len(causal_matrix)):
             if not visited[i]:
                 current_component = []
-                depth_first_search(i, visited, causal_matrix, current_component)
+                _depth_first_search(i, visited, causal_matrix, current_component)
                 components.append(current_component)
 
         random.shuffle(components)
@@ -137,8 +137,26 @@ class SyntheticTCG(nn.Module):
         return self.functional_relationships(x)[0]
 
 
-def construct_contemporaneous_data(causal_graphs_milestones: list[tuple[int, SyntheticTCG]], sequence_length: int = 500,
-                                   warmup: int = 200, noise_factor: float = 0.4):
+def generate_causal_graph(num_internal_nodes, max_lags, min_incoming_connections=1,
+                          num_external_nodes=0, num_ext_connections=1):
+    """
+    Generate a SyntheticTCG object with specified properties.
+    Args:
+        num_internal_nodes (int): Number of internal nodes in the graph.
+        max_lags (int): Maximum number of time lags.
+        min_incoming_connections (int): Minimum incoming connections per node.
+        num_external_nodes (int): Number of external nodes in the graph.
+        num_ext_connections (int): Number of connections for external nodes.
+    Returns:
+        SyntheticTCG: An instance of the SyntheticTCG class with the specified properties.
+    """
+    synthetic_tcg = SyntheticTCG(num_internal_nodes, max_lags, min_incoming_connections,
+                                 num_external_nodes, num_ext_connections)
+    return synthetic_tcg
+
+
+def generate_data(contemporaneous_milestones: list[tuple[int, SyntheticTCG]], sequence_length: int = 500,
+                  warmup: int = 200, noise_factor: float = 0.4):
     """
     Construct contemporaneous data using a series of synthetic causal graphs at specific milestones.
     The function generates random data with noise and incorporates the effects of the causal relationships
@@ -147,29 +165,29 @@ def construct_contemporaneous_data(causal_graphs_milestones: list[tuple[int, Syn
     assert sequence_length > 0 and warmup >= 0, \
         "Invalid arguments: time_steps, and warmup must be positive integers"
 
-    internal_nodes = causal_graphs_milestones[0][1].num_internal_nodes
-    external_nodes = causal_graphs_milestones[0][1].num_external_nodes
+    internal_nodes = contemporaneous_milestones[0][1].num_internal_nodes
+    external_nodes = contemporaneous_milestones[0][1].num_external_nodes
     assert all(internal_nodes == cg.num_internal_nodes and
-               external_nodes == cg.num_external_nodes for _, cg in causal_graphs_milestones), \
+               external_nodes == cg.num_external_nodes for _, cg in contemporaneous_milestones), \
         'requires all the graphs to have the same number of internal/external nodes'
 
     total_nodes = internal_nodes + external_nodes
-    max_lags = max(cg.max_lags for _, cg in causal_graphs_milestones)
+    max_lags = max(cg.max_lags for _, cg in contemporaneous_milestones)
 
     # Generate random data
     data = noise_factor * torch.randn(total_nodes, max_lags + warmup + sequence_length + 1,
                                       device='cuda' if torch.cuda.is_available() else 'cpu')
     data_mean = torch.zeros_like(data)
-    gt = generate_ground_truth(causal_graphs_milestones, sequence_length)
+    gt = generate_ground_truth(contemporaneous_milestones, sequence_length)
 
     offset = data.size(-1) - sequence_length
 
-    causal_graphs_milestones = list(causal_graphs_milestones)
+    contemporaneous_milestones = list(contemporaneous_milestones)
     with torch.no_grad():
-        _, current_graph = causal_graphs_milestones.pop(0)
+        _, current_graph = contemporaneous_milestones.pop(0)
         for i in trange(current_graph.max_lags, data.size(-1), desc='Generating temporal data..'):
-            if len(causal_graphs_milestones) > 0 and causal_graphs_milestones[0][0] == i - offset:
-                _, current_graph = causal_graphs_milestones.pop(0)
+            if len(contemporaneous_milestones) > 0 and contemporaneous_milestones[0][0] == i - offset:
+                _, current_graph = contemporaneous_milestones.pop(0)
             effect_without_noise = current_graph.forward(data[:, i - current_graph.max_lags:i])
             data_mean[:, i] = effect_without_noise
             data[:, i] += effect_without_noise
@@ -188,7 +206,7 @@ def generate_ground_truth(causal_graphs_milestones, sequence_length):
     it across the sequence length. The resulting tensor represents the causal relationships for
     each time step and graph milestone.
     """
-    milestone_sizes = verify_milestones([i for i, _ in causal_graphs_milestones], sequence_length)
+    milestone_sizes = _verify_milestones([i for i, _ in causal_graphs_milestones], sequence_length)
     gt = []
     for size_, (_, cg) in zip(milestone_sizes, causal_graphs_milestones):
         causal_matrix = cg.get_causal_matrix()[:cg.num_internal_nodes, :, None]
@@ -198,7 +216,7 @@ def generate_ground_truth(causal_graphs_milestones, sequence_length):
     return gt
 
 
-def verify_milestones(mile_stones: list[int], sequence_length: int):
+def _verify_milestones(mile_stones: list[int], sequence_length: int):
     if len(mile_stones) == 0:
         raise ValueError("Milestones list is empty.")
 
@@ -217,10 +235,10 @@ def verify_milestones(mile_stones: list[int], sequence_length: int):
     return milestone_diffs
 
 
-def depth_first_search(node, visited, graph, current_component):
+def _depth_first_search(node, visited, graph, current_component):
     """ A depth-first search on a graph starting from a given node. """
     visited[node] = True
     current_component.append(node)
     for i in range(len(graph)):
         if graph[node][i] and not visited[i]:
-            depth_first_search(i, visited, graph, current_component)
+            _depth_first_search(i, visited, graph, current_component)

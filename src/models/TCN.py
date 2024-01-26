@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 
@@ -18,7 +19,7 @@ class TCN(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, kernel_size: int = 2,
                  n_blocks: int = 2, n_layers: int = 2, groups: int = 1,
                  dropout: float = 0.0, weight_sharing: bool = False, recurrent: bool = False,
-                 use_padding: bool = False):
+                 use_padding: bool = False, use_positional_embedding=False):
         """
         This module defines a flexible Temporal Convolutional Network (TCN) class that can be configured with different
         variants of TCN models, including weight sharing and recurrent architectures.
@@ -36,6 +37,8 @@ class TCN(nn.Module):
             recurrent (bool, optional): Whether to use recurrent temporal layers (default: False).
             use_padding (bool, optional): Whether to use padding in convolutional layers to get the same
                                           input and output size (default: False).
+            use_positional_embedding (bool, optional): Whether to use a positional embedding in convolutional layers
+                                                   for temporal awareness in contemporaneous systems (default: False).
         """
         super().__init__()
 
@@ -49,7 +52,8 @@ class TCN(nn.Module):
             'n_layers': n_layers,
             'groups': groups,
             'dropout': dropout,
-            'use_padding': use_padding
+            'use_padding': use_padding,
+            'use_positional_embedding': use_positional_embedding
         }
 
         # Create the correct variant of the TCN based on the flags
@@ -63,6 +67,7 @@ class TCN(nn.Module):
             self.tcn = DefaultTCN(**config)
 
         self.receptive_field = (2 ** n_blocks - 1) * n_layers * (kernel_size - 1) + 1
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         """
@@ -74,7 +79,7 @@ class TCN(nn.Module):
         Returns:
             torch.Tensor: Output tensor after passing through the TCN model.
         """
-        return self.tcn(x)
+        return self.tcn(self.dropout(x))
 
 
 class DefaultTCN(nn.Module):
@@ -84,7 +89,8 @@ class DefaultTCN(nn.Module):
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
                  kernel_size: int, n_blocks: int = 2, n_layers: int = 1,
-                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
+                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False,
+                 use_positional_embedding: bool = False):
         super().__init__()
         assert hidden_dim % groups == 0, "'hidden_dim' should be a multiple of 'groups'"
 
@@ -108,7 +114,8 @@ class DefaultTCN(nn.Module):
                     n_layers=n_layers,
                     dropout=dropout,
                     use_residual=i > 0,
-                    use_padding=use_padding)
+                    use_padding=use_padding,
+                    use_positional_embedding=i == 0 and use_positional_embedding)
             )
             modules.append(relu)
             modules.append(dropout_layer)
@@ -140,7 +147,8 @@ class RecurrentTCN(nn.Module):
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
                  kernel_size: int, n_blocks: int = 3, n_layers: int = 1,
-                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
+                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False,
+                 use_positional_embedding: bool = False):
         super().__init__()
 
         self.n_blocks = n_blocks
@@ -157,7 +165,8 @@ class RecurrentTCN(nn.Module):
             n_layers=n_layers,
             dropout=dropout,
             use_residual=False,
-            use_padding=use_padding
+            use_padding=use_padding,
+            use_positional_embedding=use_positional_embedding
         )
 
         # Define the recurrent block
@@ -212,7 +221,8 @@ class WeightSharingTCN(nn.Module):
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
                  kernel_size: int, n_blocks: int = 3, n_layers: int = 1,
-                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
+                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False,
+                 use_positional_embedding: bool = False):
         super().__init__()
 
         assert hidden_dim % groups == 0, "The hidden dimension must be divisible by the number of groups"
@@ -235,7 +245,8 @@ class WeightSharingTCN(nn.Module):
             n_layers=n_layers,
             dropout=dropout,
             use_residual=False,
-            use_padding=use_padding
+            use_padding=use_padding,
+            use_positional_embedding=use_positional_embedding
         ), relu, dropout_layer)
 
         # Create the stack of Temporal Blocks
@@ -298,7 +309,8 @@ class WeightSharingRecurrentTCN(nn.Module):
     """
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int,
                  kernel_size: int, n_blocks: int = 3, n_layers: int = 1,
-                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False):
+                 groups: int = 1, dropout: float = 0.0, use_padding: bool = False,
+                 use_positional_embedding: bool = False):
         super().__init__()
         assert n_blocks >= 3, 'if n_blocks is smaller than 3, please use a regular WS-TCN'
         self.groups = groups
@@ -319,7 +331,8 @@ class WeightSharingRecurrentTCN(nn.Module):
             n_layers=n_layers,
             dropout=dropout,
             use_residual=False,
-            use_padding=use_padding
+            use_padding=use_padding,
+            use_positional_embedding=use_positional_embedding
         )
 
         # Define the recurrent block
@@ -392,7 +405,7 @@ class TemporalBlock(nn.Module):
     """
     def __init__(self, in_channels: int, out_channels: int, kernel_size: int,
                  dilation: int = 1, groups: int = 1, n_layers: int = 1, dropout: float = 0.0,
-                 use_residual=True, use_padding: bool = False):
+                 use_residual=True, use_padding: bool = False, use_positional_embedding: bool = False):
         super().__init__()
 
         assert n_layers > 0, "Number of layers should be 1 or greater."
@@ -418,6 +431,9 @@ class TemporalBlock(nn.Module):
 
         self.use_residual = use_residual
         self.use_padding = use_padding
+        self.positional_embedding = None
+        if use_positional_embedding:
+            self.positional_embedding = PositionalEmbedding(out_channels, groups=groups)
 
         for i in range(n_layers):
             self.convolutions.append(nn.utils.weight_norm(nn.Conv1d(
@@ -454,6 +470,8 @@ class TemporalBlock(nn.Module):
                 x = nn.functional.pad(x, (self.dilation * (self.kernel_size - 1), 0), 'constant', 0)
             x = self.convolutions[i](x)
             x = self.relu(x)
+            if i == 0 and self.positional_embedding is not None:
+                x = self.positional_embedding(x)
             x = self.dropout(x)
 
         # Do not apply relu/dropout to last layer
@@ -466,3 +484,30 @@ class TemporalBlock(nn.Module):
             x = x + identity[..., -x.size(-1):]
 
         return x
+
+
+class PositionalEmbedding(nn.Module):
+    def __init__(self, hidden_dim, groups=1, max_length=3000):
+        super().__init__()
+        h = hidden_dim // groups
+        # Create the positional embedding
+        pos_embedding = torch.zeros(1, h, max_length)
+        position = torch.arange(0, max_length).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, h, 2).float() * (-math.log(10000.0) / h))
+        pos_embedding[0, 0::2, :] = torch.sin(position * div_term).t()
+        pos_embedding[0, 1::2, :] = torch.cos(position * div_term).t()
+        pos_embedding *= 0.5
+        pos_embedding = pos_embedding.repeat(1, groups, 1)
+        self.register_buffer('pos_embedding', pos_embedding)
+
+    def forward(self, x):
+        return x + self.pos_embedding[..., :x.size(-1)]
+
+
+if __name__ == '__main__':
+    from matplotlib import pyplot as plt
+    plt.plot(PositionalEmbedding(3 * 8, 3, max_length=3000).pos_embedding[0].t())
+    plt.show()
+    model = TCN(in_channels=3, out_channels=3*3, hidden_dim=3*8, groups=3,
+                use_padding=True, use_positional_embedding=True)
+    print(model(torch.randn(1, 3, 200)).shape)
