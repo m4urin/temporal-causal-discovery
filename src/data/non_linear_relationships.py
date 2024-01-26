@@ -1,3 +1,4 @@
+import os
 import warnings
 
 import numpy as np
@@ -7,6 +8,7 @@ from torch import nn
 from torch.optim import AdamW
 from tqdm import trange
 
+from environment import TEST_DIR
 from src.utils import exponential_scheduler_with_warmup, get_model_device
 from src.data.visualisations import plot_3d_surface, plot_3d_scatter_points
 
@@ -227,7 +229,7 @@ def test_models():
     adj_matrix[2, 1, 3] = 1
     adj_matrix = adj_matrix.bool()
 
-    model, additive, score = get_non_linear_functions(adj_matrix, best_of=3, n_points=20, epochs=2000)
+    model, additive, score = get_non_linear_functions(adj_matrix, best_of=1, n_points=20, epochs=500)
 
     _, _, mesh_data_coupled, points_3d = model.get_mesh_data(precision=30)
     mesh_data_additive = additive.get_mesh_data(precision=30)
@@ -236,17 +238,46 @@ def test_models():
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         ax = plot_3d_surface(*mesh_data_coupled[i], ax=ax, cmap='twilight', label='Coupled Model',
-                             label_color=np.array([[187.0, 132, 149, 256]])/256)
+                             color=np.array([[187.0, 132, 149, 256]])/256)
         ax = plot_3d_surface(*mesh_data_additive[i], ax=ax, cmap='winter', label='Additive Model',
-                             label_color=np.array([[7.0, 148, 168, 256]])/256)
+                             color=np.array([[7.0, 148, 168, 256]])/256)
         x1, x2, y = points_3d[i]
         ax = plot_3d_scatter_points(x1, x2, y + 0.02, ax=ax, label='Random generation data')
 
         plt.legend()
         ax.view_init(azim=60, elev=20)
 
-        fig.savefig(f'C:/Users/mauri/Desktop/thesis_img/non-linear/relationship_{i}.svg', format='svg', dpi=500)
+        fig.savefig(os.path.join(TEST_DIR, f'relationship_{i}.png'), dpi=200)
         plt.show()
+
+
+
+def strong_interaction():
+    lin_space = np.linspace(-1, 1, 20)
+    x1, x2 = np.meshgrid(lin_space, lin_space)
+    y = x1 * x2 #(20, 20)
+
+    plot_3d_surface(x1, x2, y, ax=None, cmap=None, label=None, color=None)
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax = plot_3d_surface(x1, x2, x1*x2, ax=ax, cmap='twilight', label='Non-additive Model',
+                         color=np.array([[187.0, 132, 149, 256]]) / 256)
+    ax = plot_3d_surface(x1, x2, x1*0, ax=ax, cmap='winter', label='Additive Model',
+                         color=np.array([[7.0, 148, 168, 256]]) / 256)
+
+    x1, x2 = 2 * torch.rand(2, 25) - 1
+    ax = plot_3d_scatter_points(x1, x2, x1 * x2 + torch.randn(25)*0.03, ax=ax, label='Random generation data')
+
+    ticks = np.arange(-1.0, 1.1, 0.5)  # Creates an array from -2 to 2 with a step of 0.5
+    ax.set_xticks(ticks)
+    ax.set_yticks(ticks)
+    ax.set_zticks(ticks)
+
+    plt.legend()
+    ax.view_init(azim=73, elev=15)
+
+    fig.savefig(os.path.join(TEST_DIR, f'strong_interaction.png'), dpi=400)
+    plt.show()
 
 
 def find_minimum(model, input_size, output_size, k=1000, lr=1e-2, epochs=400,
@@ -402,4 +433,5 @@ def fit_regression_model(model: nn.Module, model_original: nn.Module, data_size,
 
 
 if __name__ == '__main__':
-    test_models()
+    strong_interaction()
+    #test_models()
