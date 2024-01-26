@@ -1,11 +1,13 @@
 # project files
 .idea/
-outputs/mlruns
-outputs/artifacts
+outputs/
 tests/
+
+# test files
 *_ignore.*
 *test.py
-*Digraph.gv.svg
+
+# artifacts
 *.pt
 *.png
 *.jpg
