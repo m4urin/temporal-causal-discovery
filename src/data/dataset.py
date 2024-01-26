@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 from typing import Dict, Union
 
-from io import DATA_DIR, OUTPUT_DIR
+from src.utils import DATA_DIR, OUTPUT_DIR
 
 """
 Structure of the dataset Dictionary:

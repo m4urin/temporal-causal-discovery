@@ -6,7 +6,7 @@ import torch
 import mlflow
 from mlflow import MlflowClient
 
-from io import OUTPUT_DIR
+from src.utils import OUTPUT_DIR
 
 
 def save_artifacts(experiment_name, experiment_run, model, results):
@@ -74,10 +74,6 @@ def clean_experiment(experiment_name):
         experiment_id = experiment.experiment_id
         if experiment.lifecycle_stage != 'deleted':
             mlflow.delete_experiment(experiment_id)
-            #print(f"Deleted experiment '{experiment_name}'.")
         p = urlparse(mlflow.get_tracking_uri())
         shutil.rmtree(os.path.abspath(os.path.join(p.netloc, p.path, '.trash', experiment_id)))
-    else:
-        pass
-        #print(f"Experiment '{experiment_name}' was not found, creating experiment..")
     return mlflow.create_experiment(experiment_name)

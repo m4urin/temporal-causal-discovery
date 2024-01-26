@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from torch import nn
 
@@ -86,6 +85,7 @@ class TAMCaD_UA(nn.Module):
                 of size (batch_size, n_var, seq_len).
             create_artifacts (bool): Flag indicating whether to return the artifacts.
             ground_truth (torch.Tensor, optional): Ground truth tensor for the causal matrix is of size (n_var, n_var).
+            temporal_matrix (bool): return causal matrix with time axis.
 
         Returns:
             dict: A dictionary containing the loss, prediction, and optional metrics like causal matrix and AUROC.

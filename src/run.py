@@ -3,8 +3,7 @@ from pprint import pprint
 
 import torch
 from hyperopt.pyll.stochastic import sample
-from config import OUTPUT_DIR, GPULAB_JOB_ID
-from src.training.hyper_optimization import run_hyperopt, dataset_subset
+from src.training.hyper_optimization import run_hyperopt
 from src.training.train_model import train_model
 from src.utils import load_data, read_json, write_json, ConsoleProgressBar, get_method_simple_description
 

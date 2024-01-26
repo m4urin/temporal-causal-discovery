@@ -8,9 +8,8 @@ from torch import nn
 from torch.optim import AdamW
 from tqdm import trange
 
-from io import TEST_DIR
-from src.utils import exponential_scheduler_with_warmup, get_model_device
-from src.data.visualisations import plot_3d_surface, plot_3d_scatter_points
+from src.utils import exponential_scheduler_with_warmup, get_module_device, TEST_DIR
+from src.eval.visualisations import plot_3d_surface, plot_3d_scatter_points
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 warnings.filterwarnings("ignore", category=UserWarning, message=r'.*scheduler\.step\(\).*')
@@ -49,7 +48,7 @@ class CoupledNonLinearRandomFit(nn.Module):
 
     def replace_causal_matrix(self, causal_matrix):
         assert self.causal_matrix.shape == causal_matrix.shape
-        device = get_model_device(self)
+        device = get_module_device(self)
         new_instance = self.__class__(causal_matrix, self.hidden_dim, self.max_input_value, self.max_output_value)
         new_instance.to(device)
         new_instance.load_state_dict(self.state_dict())  # Copy parameters and buffers

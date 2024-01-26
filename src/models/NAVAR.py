@@ -47,7 +47,7 @@ class NAVAR(nn.Module):
             x (torch.Tensor): Input tensor of shape (batch_size, n_variables, sequence_length).
             x_noise_adjusted (torch.Tensor, optional): Tensor of true mean values of the time series.
                 Shape: (batch_size, n_variables, sequence_length).
-            return_causal_matrix (bool): Flag indicating whether to return the causal matrix.
+            create_artifacts (bool): Flag indicating whether to return the causal matrix.
             temporal_matrix (bool): Flag to use sliding window for temporal matrices.
             ground_truth (torch.Tensor, optional): Ground truth tensor for the causal matrix.
 
@@ -160,6 +160,7 @@ def main():
             print(f"{k}:", artifacts[k].item() if artifacts[k].numel() == 1 else artifacts[k].shape)
 
     torch.save({**metrics, **artifacts}, 'test.pt')
+
 
 if __name__ == "__main__":
     main()

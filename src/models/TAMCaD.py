@@ -127,7 +127,7 @@ def main():
     tcn_params = {'n_blocks': 2, 'n_layers': 2, 'kernel_size': 2, 'dropout': 0.2}
 
     # Initialize the NAVAR model
-    model = TAMCaD(n_variables, hidden_dim, lambda1, beta, gamma, **tcn_params)
+    model = TAMCaD(n_variables, hidden_dim, gamma, **tcn_params)
 
     # Generate dummy input data (batch_size, n_variables, sequence_length)
     batch_size = 1

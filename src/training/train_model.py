@@ -4,9 +4,8 @@ import torch
 from mlflow import MlflowClient
 from torch.optim import AdamW
 from tqdm import trange
-from io import GPULAB_JOB_ID
 from src.training.experiment import get_all_metrics_params, save_artifacts
-from src.utils import count_parameters, receptive_field, move_to
+from src.utils import count_parameters, receptive_field, to_cpu, GPULAB_JOB_ID, to_cuda
 
 
 def train_model(
@@ -66,7 +65,7 @@ def train_model(
         result.update({'model_params': log_params, 'train_data': train_data, 'test_data': test_data,
                        **get_all_metrics_params(run.info.run_id)})
 
-        result = move_to(result, 'cpu')
+        result = to_cpu(result)
 
         model = model.cpu()
 
@@ -164,9 +163,9 @@ def train_test_split(data: torch.Tensor, ground_truth: torch.Tensor = None,
 
     # make contiguous for efficiency
     if torch.cuda.is_available():
-        train = move_to(train, 'cuda')
-        test = move_to(test, 'cuda')
-        ground_truth = move_to(ground_truth, 'cuda')
+        train = to_cuda(train)
+        test = to_cuda(test)
+        ground_truth = to_cuda(ground_truth)
 
     if test_size == 0.0:
         test = None

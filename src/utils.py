@@ -5,13 +5,11 @@ import json
 import math
 import os
 import pickle
-import random
 import time
 import warnings
 import zipfile
-from typing import Union, Iterable, Optional
+from typing import Union, Iterable
 
-import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
@@ -25,14 +23,41 @@ from torch import nn
 from torch.optim import lr_scheduler
 from tqdm import trange
 
-from io import DATA_DIR, OUTPUT_DIR
-from src.config import Dataset
+
+# --------- Paths -------
+
+""" Get the full paths"""
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+
+""" GPULab """
+GPULAB_JOB_ID = None
+if 'GPULAB_JOB_ID' in os.environ:
+    GPULAB_JOB_ID = os.environ['GPULAB_JOB_ID'][:6]
+    OUTPUT_DIR = os.path.join(os.path.split(PROJECT_ROOT)[0], 'outputs')
+else:
+    OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'outputs')
+
+TEST_DIR = os.path.join(OUTPUT_DIR, 'test')
+os.makedirs(TEST_DIR, exist_ok=True)
+
+""" MLFlow """
+TRACKING_URI = f'file://{os.path.join(OUTPUT_DIR, "mlruns")}'.replace("\\", "/")
+mlflow.set_tracking_uri(TRACKING_URI)
+
+if __name__ == '__main__':
+    print(f'PROJECT_ROOT: {PROJECT_ROOT}')
+    print(f'DATA_DIR: {DATA_DIR}')
+    print(f'OUTPUT_DIR: {OUTPUT_DIR}')
+    print(f'TEST_DIR: {TEST_DIR}')
+    print(f'MLFlow URI: {TRACKING_URI}')
 
 
 # --------- TCN ---------
 
 def receptive_field(n_blocks, n_layers, kernel_size, **kwargs):
     return n_layers * ((2 ** n_blocks) - 1) * (kernel_size - 1) + 1
+
 
 def generate_architecture_options(max_lags, marge, minimum_num_options=1,
                                   n_blocks=None, n_layers_per_block=None, kernel_size=None):
@@ -87,82 +112,6 @@ def generate_architecture_options(max_lags, marge, minimum_num_options=1,
     return [{'n_blocks': b, 'n_layers_per_block': l, 'kernel_size': k} for b, l, k in valids]
 
 
-# --------- Datasets ---------
-
-def load_data(data_dir: str, name: str):
-    """ Load and preprocess data from a zip file. """
-    if data_dir == 'causeme':
-        return load_causeme_data(name)
-    if data_dir == 'synthetic':
-        return load_synthetic_data(name)
-    raise ValueError(f"Cannot load '{data_dir}'.")
-
-
-def load_synthetic_data(name: str):
-    """ Load and preprocess synthetic data from a zip file. """
-    directory = os.path.join(DATA_DIR, 'synthetic')
-    pt_file = os.path.join(directory, f"{name}.pt")
-
-    if not os.path.exists(pt_file):
-        with zipfile.ZipFile(os.path.join(directory, f"{name}.zip"), 'r') as zip_ref:
-            zip_ref.extractall(directory)
-
-    data = torch.load(pt_file)
-    os.remove(pt_file)
-
-    return normalize_dataset(Dataset(
-        data_dir='synthetic',
-        name=name,
-        data=data['data'].unsqueeze(0),
-        data_mean=data['data_mean'].unsqueeze(0),
-        ground_truth=data['ground_truth'].unsqueeze(0).float()
-    ))
-
-
-def load_causeme_data(name: str):
-    """ Load and preprocess CauseMe data from a zip file. """
-    zip_file = os.path.join(DATA_DIR, 'causeme', f"{name}.zip")
-
-    with zipfile.ZipFile(zip_file, 'r') as f:
-        data = np.stack([np.loadtxt(f.open(name)) for name in sorted(f.namelist())])
-
-    data = torch.from_numpy(data).float().transpose(-1, -2).unsqueeze(dim=1)
-
-    return normalize_dataset(Dataset('causeme', name, data))
-
-
-def normalize_dataset(dataset: Dataset) -> Dataset:
-    means = dataset.data.mean(dim=-1, keepdim=True)
-    stds = dataset.data.std(dim=-1, keepdim=True)
-
-    dataset.data = (dataset.data - means) / stds
-    if dataset.data_mean is not None:
-        dataset.data_mean = (dataset.data_mean - means) / stds
-
-    return dataset
-
-
-def write_causeme_predictions(model, dataset_name, scores, **parameter_values):
-    data = {
-        'experiment': dataset_name,
-        'model': dataset_name.split('_')[0],
-        'parameter_values': ', '.join([f'{k}={v}' for k, v in parameter_values.items()]),
-        'method_sha': "e0ff32f63eca4587b49a644db871b9a3" if model == 'NAVAR' else "8fbf8af651eb4be7a3c25caeb267928a",
-        'scores': scores.reshape(scores.size(0), -1).detach().cpu().numpy().tolist()
-    }
-    data = json.dumps(data).encode('latin1')
-    md5 = hashlib.md5(data).digest().hex()[:8]
-
-    dir_path = os.path.join(OUTPUT_DIR, 'artifacts')
-    os.makedirs(dir_path, exist_ok=True)
-    filepath = os.path.join(dir_path, f'{model}_{dataset_name}_{md5}.json.bz2')
-
-    with bz2.BZ2File(filepath, 'w') as bz2_file:
-        bz2_file.write(data)
-
-    return filepath
-
-
 # --------- PyTorch Functions ---------
 
 def count_parameters(model: nn.Module, trainable_only: bool = False) -> int:
@@ -202,56 +151,6 @@ def weighted_std(x: torch.Tensor, weights: torch.Tensor, dim, keepdim=False):
         total_weight = total_weight.squeeze(dim)
     weighted_variance = (weights * (x - weighted_mean).pow(2)).sum(dim=dim, keepdims=keepdim) / total_weight
     return torch.sqrt(weighted_variance)
-
-
-def weighted_sliding_window_std(x: torch.Tensor, weights: torch.Tensor,
-                                window: tuple, dim: int = -1, correction: int = 1) -> torch.Tensor:
-    """
-    Computes the sliding window weighted standard deviation of a tensor along a specified dimension.
-
-    Parameters:
-        x (torch.Tensor): Input tensor.
-        weights (torch.Tensor): Weights tensor with the same shape as x.
-        window (tuple of int): The sliding window (left-inclusive, right). The sum of the tuple is the total window size.
-        dim (int, optional): The dimension along which to compute the sliding window standard deviation. Default is the last dimension.
-        correction (int, optional): A correction factor for the biased variance. Default is 1.
-
-    Returns:
-        torch.Tensor: Tensor of sliding window weighted standard deviations.
-    """
-    assert x.shape == weights.shape, "x and weights must have the same shape"
-
-    tensor_size = x.size(dim)
-    window_size = sum(window)
-
-    x = pad(x, window, dim=dim)  # Assumes pad function is imported and defined elsewhere
-    weights = pad(weights, window, dim=dim)
-
-    # Weighted cumulative sum of x, x^2, and weights
-    w_cumsum = torch.cumsum(weights, dim=dim)
-    xw_cumsum = torch.cumsum(x * weights, dim=dim)
-    x2w_cumsum = torch.cumsum((x ** 2) * weights, dim=dim)
-
-    # Sum of weighted x, x^2, and weights over the window
-    w_sum = w_cumsum.narrow(dim, window_size, tensor_size) - w_cumsum.narrow(dim, 0, tensor_size)
-    xw_sum = xw_cumsum.narrow(dim, window_size, tensor_size) - xw_cumsum.narrow(dim, 0, tensor_size)
-    x2w_sum = x2w_cumsum.narrow(dim, window_size, tensor_size) - x2w_cumsum.narrow(dim, 0, tensor_size)
-
-    # Weighted mean of x, x^2, and weights over the window
-    xw_mean = xw_sum.div(w_sum)
-    x2w_mean = x2w_sum.div(w_sum)
-
-    # Weighted variance and standard deviation
-    variance = x2w_mean - xw_mean ** 2
-
-    if correction == 1:
-        w2_cumsum = torch.cumsum(weights.pow(2), dim=dim)
-        w2_sum = w2_cumsum.narrow(dim, window_size, tensor_size) - w2_cumsum.narrow(dim, 0, tensor_size)
-        variance = variance * w_sum / ((w_sum ** 2) - w2_sum)
-
-    std_dev = torch.sqrt(variance)
-
-    return std_dev
 
 
 def entropy(x: torch.Tensor, dim: int = -1, keepdim: bool = False) -> torch.Tensor:
@@ -307,9 +206,27 @@ def exponential_scheduler_with_warmup(total_iters, optimizer, start_factor=1.0, 
                                      milestones=[warmup_iters - 1, total_iters - cooldown_iters])
 
 
-def get_model_device(model: nn.Module):
+def get_module_device(model: nn.Module):
     """ Obtains the device of the model. """
     return next(model.parameters()).device
+
+
+def to_cuda(data):
+    if isinstance(data, dict):
+        return {k: to_cuda(v) for k, v in data.items()}
+    elif isinstance(data, torch.Tensor):
+        return data.contiguous().cuda()
+    else:
+        return data
+
+
+def to_cpu(data):
+    if isinstance(data, dict):
+        return {k: to_cpu(v) for k, v in data.items()}
+    elif isinstance(data, torch.Tensor):
+        return data.detach().cpu()
+    else:
+        return data
 
 
 def augment_with_sine(x: torch.Tensor):
