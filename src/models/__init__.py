@@ -3,6 +3,5 @@ from .TCN import TCN
 from .NAVAR import NAVAR
 from .NAVAR_UA import NAVAR_UA
 from .TAMCaD import TAMCaD
-from .TAMCaD2 import TAMCaD2
 from .TAMCaD_UA import TAMCaD_UA
 from .TAMCaD_T import TAMCaD_T
