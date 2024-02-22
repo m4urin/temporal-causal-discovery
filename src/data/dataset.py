@@ -6,7 +6,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 import torch
-from typing import Dict, Union
+from typing import Dict, Union, List
 
 from src.utils import DATA_DIR, OUTPUT_DIR
 
@@ -14,19 +14,25 @@ from src.utils import DATA_DIR, OUTPUT_DIR
 Structure of the dataset Dictionary:
 In the CauseMe project, datasets are represented as dictionaries with the following possible keys:
 - 'name' (str): The name of the dataset, which typically includes information about its source or parameters.
-- 'data' (torch.Tensor): Represents observation data.
-- 'data_noise_adjusted' (torch.Tensor, optional): Represents observations with noise adjustments applied.
-- 'ground_truth' (torch.Tensor, optional): Represents the ground truth for comparison and evaluation.
+- 'data' (torch.Tensor): Represents observation data and is of size 
+                         (n_datasets, n_samples, n_variables, sequence_length). 
+                         Here, n_datasets is the number of distinct causal structures, and n_samples is 
+                         the number of recorded observations of a single causal structure.
+- 'data_noise_adjusted' (torch.Tensor, optional): Represents observations with noise adjustments applied, and has
+                                                  the same size as 'data'.
+- 'ground_truth' (torch.Tensor, optional): Represents the ground truth for comparison and evaluation, and is of size
+                                           (n_datasets, n_variables, n_variables). 
 """
 
 
-def load_dataset(dataset_type: str, name: str) -> Dict[str, Union[str, torch.Tensor]]:
+def load_dataset(dataset_type: str, name: str, return_unpacked_datasets=True):
     """
     Load a dataset from a specified type and name.
 
     Args:
         dataset_type (str): Type of dataset ('causeme', 'synthetic', or 'dream3').
         name (str): Name of the dataset.
+        return_unpacked_datasets (bool): unpack the datasets as a list.
 
     Returns:
         dict: A dictionary containing dataset information.
@@ -51,6 +57,9 @@ def load_dataset(dataset_type: str, name: str) -> Dict[str, Union[str, torch.Ten
 
     dataset = normalize_dataset(dataset)
     torch.save(dataset, dataset_path)
+
+    if return_unpacked_datasets:
+        return unpack_datasets(dataset)
     return dataset
 
 
@@ -108,9 +117,10 @@ def load_dream3_dataset(name: str) -> Dict[str, Union[str, torch.Tensor]]:
 
     data = torch.tensor(df.values, dtype=torch.float32).reshape(-1, 21, 101).transpose(-1, -2)
     data = data[:, 1:]  # Remove time column
+    data = data.unsqueeze(0)  # 1 SCM
 
     ground_truth = torch.zeros((100, 100), dtype=torch.float32)
-    # Read the groundtruth data from the file
+    # Read the ground truth data from the file
     for line in txt_lines:
         source_node, target_node, value = line.strip().split('\t')
         source_node = int(source_node[1:]) - 1  # Remove the 'G' prefix and convert to an integer
@@ -118,7 +128,7 @@ def load_dream3_dataset(name: str) -> Dict[str, Union[str, torch.Tensor]]:
         value = float(value)
         # Update the matrix with the groundtruth value
         ground_truth[source_node, target_node] = value
-    ground_truth = ground_truth.unsqueeze(0)  # Add batch dimension
+    ground_truth = ground_truth.unsqueeze(0)  # 1 SCM
 
     return {'name': name, 'data': data, 'ground_truth': ground_truth}
 
@@ -139,14 +149,35 @@ def normalize_dataset(dataset: Dict[str, Union[str, torch.Tensor]]) -> Dict[str,
 
     normalized_dataset = {
         'name': dataset['name'],
-        'data': (dataset['data'] - data_mean) / data_std,
-        'ground_truth': dataset['ground_truth']
+        'data': (dataset['data'] - data_mean) / data_std
     }
     if 'data_noise_adjusted' in dataset:
         # Use the same mean and std
         normalized_dataset['data_noise_adjusted'] = (dataset['data_noise_adjusted'] - data_mean) / data_std
+    if 'ground_truth' in dataset:
+        normalized_dataset['ground_truth'] = dataset['ground_truth']
 
     return normalized_dataset
+
+def unpack_datasets(dataset: Dict[str, Union[str, torch.Tensor]]) -> List[Dict[str, Union[str, torch.Tensor]]]:
+    n_datasets = dataset['data'].size(0)
+
+    default = {'name': dataset['name']}
+
+    unpacked_datasets = []
+    for i in range(n_datasets):
+        unpacked_datasets.append({
+            'name': dataset['name'],
+            'data': dataset['data'][i]
+        })
+    if 'data_noise_adjusted' in dataset:
+        for i in range(n_datasets):
+            unpacked_datasets[i]['data_noise_adjusted'] = dataset['data_noise_adjusted'][i]
+    if 'ground_truth' in dataset:
+        for i in range(n_datasets):
+            unpacked_datasets[i]['ground_truth'] = dataset['ground_truth'][i]
+
+    return unpacked_datasets
 
 
 def save_synthetic_dataset(name: str, dataset: Dict[str, Union[str, torch.Tensor]]):
@@ -215,7 +246,19 @@ def save_causeme_predictions(model_name: str, dataset: Dict[str, torch.Tensor], 
     print('CauseMe predictions written to:', file_path)
 
 
+def print_dataset(dataset):
+    if not isinstance(dataset, list):
+        dataset = unpack_datasets(dataset)
+    for j, d in enumerate(dataset[:2]):
+        print(f'Dataset {j}')
+        for _k, _v in d.items():
+            print(f"\t{_k}: {_v.shape if isinstance(_v, torch.Tensor) else _v}")
+    if len(dataset) > 3:
+        print(f'...')
+    print(f'Dataset {len(dataset) - 1}')
+    for _k, _v in dataset[-1].items():
+        print(f"\t{_k}: {_v.shape if isinstance(_v, torch.Tensor) else _v}")
+
+
 if __name__ == '__main__':
-    data_frame = load_dataset('synthetic', 'sample_dataset')
-    for _k, _v in data_frame.items():
-        print(f"{_k}: {_v.shape if isinstance(_v, torch.Tensor) else _v}")
+    print_dataset(load_dataset('dream3', 'yeast1', return_unpacked_datasets=True))
