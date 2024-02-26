@@ -229,6 +229,15 @@ def to_cpu(data):
         return data
 
 
+def detach(data):
+    if isinstance(data, dict):
+        return {k: detach(v) for k, v in data.items()}
+    elif isinstance(data, torch.Tensor):
+        return data.detach()
+    else:
+        return data
+
+
 def augment_with_sine(x: torch.Tensor):
     batch_size, n, seq_len = x.size()
 
