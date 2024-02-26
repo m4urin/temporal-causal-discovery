@@ -436,7 +436,7 @@ class TemporalBlock(nn.Module):
             self.positional_embedding = PositionalEmbedding(out_channels, groups=groups)
 
         for i in range(n_layers):
-            self.convolutions.append(nn.utils.weight_norm(nn.Conv1d(
+            self.convolutions.append(nn.utils.parametrizations.weight_norm(nn.Conv1d(
                 in_channels=in_channels if i == 0 else out_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
