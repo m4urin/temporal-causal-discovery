@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 from typing import Dict, Union, List
+from torch.utils.data import Dataset
 
 from src.utils import DATA_DIR, OUTPUT_DIR
 
@@ -298,5 +299,47 @@ def print_dataset(dataset):
             print(f"\t{_k}: {_v.shape if isinstance(_v, torch.Tensor) else _v}")
 
 
+class TemporalDataset(Dataset):
+    def __init__(self, **data_dict):
+        """
+        Initializes the dataset with data tensors and optional kwargs.
+        Args:
+            data (Tensor): The main dataset tensor.
+            data_noise_adjusted (Tensor, optional): A tensor with noise-adjusted data.
+            **kwargs: Additional keyword arguments to be included in each item.
+        """
+        self.data_dict = data_dict
+        print(data_dict)
+        self.default = {k: v for k, v in data_dict.items() if not isinstance(v, torch.Tensor)}
+        print(self.default)
+        self.tensors = {k: v for k, v in data_dict.items() if isinstance(v, torch.Tensor)}
+        print(self.tensors)
+        self.length = len(next(iter(self.tensors.values())))
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, index):
+        """
+        Retrieves an item at the specified index from the dataset.
+        Args:
+            index (int): Index of the item to retrieve.
+        Returns:
+            dict: A dictionary containing data for the requested index, merged with default kwargs.
+        """
+        # Retrieve a batch slice from each tensor in the dictionary
+        batch = {key: tensor[index] for key, tensor in self.tensors.items()}
+        return {**self.default, **batch}
+
+    def __str__(self):
+        """
+        Returns a string representation of the dataset instance, summarizing its main attributes.
+        """
+        return str({k: v.shape if isinstance(v, torch.Tensor) else v for k, v in self.data_dict.items()})
+
+    def __repr__(self):
+        return str(self)
+
+
 if __name__ == '__main__':
-    print_dataset(load_dataset('causeme', 'nonlinear-VAR_N-3_T-300', return_unpacked_datasets=True))
+    print_dataset(load_dataset('dream3', 'ecoli1', return_unpacked_datasets=True))
