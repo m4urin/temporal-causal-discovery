@@ -312,11 +312,13 @@ def tensor_dict_to_str(obj):
     elif isinstance(obj, dict):
         # Recursively convert tensors in dictionary
         return {k: tensor_dict_to_str(v) for k, v in obj.items() if v is not None}
-    elif isinstance(obj, list):
+    elif isinstance(obj, list) or isinstance(obj, tuple):
         # Recursively convert tensors in list
         the_list = [tensor_dict_to_str(item) for item in obj]
         if len(the_list) > 3:
             the_list = the_list[:2] + ["..."] + the_list[-1:]
+        if isinstance(obj, tuple):
+            the_list = tuple(the_list)
         return str(the_list)
     # Return the object unchanged if it's not a tensor, list or dictionary
     return obj
