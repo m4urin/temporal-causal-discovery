@@ -76,7 +76,7 @@ class TAMCaD_T(nn.Module):
         loss = nn.functional.mse_loss(x[..., 1 - s:], prediction[..., :-1])
         prediction = prediction.detach()  # (1, n_var, seq_len)
 
-        attention_logits = attention_logits.detach().squeeze(0)  # (n_var, n_var, seq_len)
+        attention_logits = attention_logits.detach()  # (n_var, n_var, seq_len)
 
         if self.gamma > 0:
             loss = loss + self.gamma * torch.diff(attention_logits, dim=-1).abs().mean()
@@ -104,6 +104,8 @@ class TAMCaD_T(nn.Module):
             causal_matrix = torch.softmax(attention_logits * 1.2, dim=1)
             if not temporal_matrix:
                 causal_matrix = causal_matrix.mean(dim=-1)
+            causal_matrix = causal_matrix.mean(dim=0)
+
             if create_artifacts:
                 artifacts['matrix'] = causal_matrix
 

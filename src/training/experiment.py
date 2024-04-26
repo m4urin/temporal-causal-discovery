@@ -31,7 +31,7 @@ def save_artifacts(experiment_name, experiment_run, model, results):
     #mlflow.log_artifact(results_path)
 
     model_path = os.path.join(directory, f'model{run_str}.pt')
-    torch.save(model.cpu(), model_path)
+    torch.save(model.cpu().state_dict(), model_path)
     #mlflow.log_artifact(model_path)
 
 

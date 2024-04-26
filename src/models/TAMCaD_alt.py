@@ -14,12 +14,13 @@ class TAMCaD(nn.Module):
 
         self.tcn = TCN(
                 in_channels=n_variables,
-                out_channels=n_variables * (hidden_dim + n_variables),
+                out_channels=n_variables * hidden_dim,
                 hidden_dim=n_variables * hidden_dim,
                 groups=n_variables,
                 dropout=dropout,
                 **kwargs
             )
+        self.attention_logits = nn.Parameter(0.2 + 0.1 * torch.randn(n_variables, n_variables))
         self.prediction = nn.Sequential(
             nn.Conv1d(in_channels=n_variables * hidden_dim,
                       out_channels=n_variables * (hidden_dim // 2),
@@ -35,26 +36,26 @@ class TAMCaD(nn.Module):
 
         batch_size, n_var, seq_len = x.size()
 
-        context, attention_logits = self.tcn(x) \
-            .reshape(batch_size, n_var, n_var + self.hidden_dim, -1) \
-            .split([self.hidden_dim, n_var], dim=2)
+        context = self.tcn(x).reshape(batch_size, n_var, self.hidden_dim, -1)
 
         # Apply masking if provided
-        if mask is None:
-            attentions = torch.softmax(attention_logits, dim=2)
+        if self.training:
+            tau = 0.7  # Temperature parameter, adjust this according to your needs
+            gumbels = -torch.log(-torch.log(torch.rand_like(self.attention_logits) + 1e-20) + 1e-20)  # Sample from Gumbel(0, 1)
+            attentions = torch.softmax((self.attention_logits + gumbels) / tau, dim=-1)  # Apply softmax
         else:
-            attentions = torch.softmax(torch.masked_fill(attention_logits, mask, -1e9), dim=2)
+            attentions = torch.softmax(self.attention_logits, dim=-1)
 
         # x: (batch_size, n_var * hidden_dim, sequence_length)
-        z = torch.einsum('bijt, bjdt -> bidt', attentions, context).reshape(batch_size, n_var * self.hidden_dim, -1)
+        z = torch.einsum('ij, bjdt -> bidt', attentions, context).reshape(batch_size, n_var * self.hidden_dim, -1)
 
         prediction = self.prediction(z)
 
-        return self.process(x, prediction, attention_logits, x_noise_adjusted,
-                            create_artifacts, temporal_matrix, ground_truth, attentions)
+        return self.process(x, prediction, self.attention_logits, x_noise_adjusted,
+                            create_artifacts, ground_truth, attentions)
 
     def process(self, x, prediction, attention_logits, x_noise_adjusted,
-                create_artifacts, temporal_matrix, ground_truth, attentions):
+                create_artifacts, ground_truth, attentions):
         """
         Processes the outputs of the forward pass, computing losses and other metrics.
 
@@ -75,8 +76,9 @@ class TAMCaD(nn.Module):
             dict: A dictionary containing the loss, prediction, and optional metrics like causal matrix and AUROC.
         """
         metrics, artifacts = {}, {}
-        s = attention_logits.size(-1)
-        loss = nn.functional.mse_loss(x[..., 1 - s:], prediction[..., :-1])
+        s = prediction.size(-1) - 1
+        #assert False, (x.shape, prediction.shape)
+        loss = nn.functional.mse_loss(x[..., -s:], prediction[..., :-1])
         prediction = prediction.detach()  # (1, n_var, seq_len)
 
         attention_logits = attention_logits.detach()  # (bs, n_var, n_var, seq_len)
@@ -99,17 +101,11 @@ class TAMCaD(nn.Module):
         # Compute causal matrix and AUROC if needed
         if create_artifacts or ground_truth is not None:
             causal_matrix = attention_logits
-            if not temporal_matrix:
-                causal_matrix = causal_matrix.mean(dim=-1)
-            causal_matrix = causal_matrix.mean(dim=0)
 
             if create_artifacts:
                 artifacts['matrix'] = min_max_normalization(causal_matrix, min_val=0.0, max_val=1.0)
 
             if ground_truth is not None:
-                if temporal_matrix:
-                    ground_truth = ground_truth[..., 1 - s:]
-                    causal_matrix = causal_matrix[..., :-1]
                 ground_truth = ground_truth.to(causal_matrix.device)
 
                 auc, tpr, fpr = AUROC(ground_truth, causal_matrix)

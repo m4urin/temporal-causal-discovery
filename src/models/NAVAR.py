@@ -92,13 +92,13 @@ class NAVAR(nn.Module):
         prediction = prediction.detach()  # (1, n_var, seq_len)
 
         regularization_loss = self.lambda1 * contributions.abs().mean()
-        contributions = contributions.detach().squeeze(0).transpose(0, 1)  # (n_var, n_var, seq_len)
+        contributions = contributions.detach().transpose(1, 2)  # (bs, n_var, n_var, seq_len)
         metrics['loss'] = regression_loss + regularization_loss
 
         if create_artifacts:
             artifacts = {
                 **artifacts,
-                'prediction': prediction.squeeze(0),
+                'prediction': prediction,
                 'contributions': contributions
             }
 
@@ -113,6 +113,8 @@ class NAVAR(nn.Module):
                 causal_matrix = sliding_window_std(contributions, window=(30, 30), dim=-1)
             else:
                 causal_matrix = contributions.std(dim=-1)
+            causal_matrix = causal_matrix.mean(dim=0)
+
             causal_matrix = min_max_normalization(causal_matrix, min_val=0.0, max_val=1.0)
             if create_artifacts:
                 artifacts['matrix'] = causal_matrix
@@ -122,7 +124,6 @@ class NAVAR(nn.Module):
                     ground_truth = ground_truth[..., 1 - s:]
                     causal_matrix = causal_matrix[..., :-1]
                 ground_truth = ground_truth.to(causal_matrix.device)
-
                 auc, tpr, fpr = AUROC(ground_truth, causal_matrix)
                 metrics.update({'AUROC': auc})
                 if create_artifacts:

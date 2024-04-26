@@ -3,9 +3,12 @@ import mlflow
 import torch
 from mlflow import MlflowClient
 from torch.optim import AdamW
+from torch.utils.data import DataLoader
 from tqdm import trange
+
+from src.data.dataset import TemporalDataset
 from src.training.experiment import get_all_metrics_params, save_artifacts
-from src.utils import count_parameters, receptive_field, to_cpu, GPULAB_JOB_ID, to_cuda
+from src.utils import count_parameters, receptive_field, to_cpu, GPULAB_JOB_ID, to_cuda, detach
 
 
 def train_model(
@@ -16,6 +19,8 @@ def train_model(
         epochs: int,
         weight_decay: float,
         test_size: float = 0.3,
+        batch_size: int = 8,
+        temporal_matrix: bool = False,
         disable_tqdm: bool = False,
         experiment_run: str = None,
         **model_params):
@@ -31,6 +36,8 @@ def train_model(
         epochs (int): Number of training epochs.
         weight_decay (float): Weight decay for optimizer.
         test_size (float, optional): Proportion of data to use for testing. Defaults to 0.3.
+        batch_size (int, optional): Batch size if there are multiple samples.
+        temporal_matrix (bool, optional): Return a temporal matrix.
         disable_tqdm (bool, optional): Disable tqdm progress bar. Defaults to False.
         **model_params: Additional model parameters.
 
@@ -50,7 +57,8 @@ def train_model(
     with mlflow.start_run(experiment_id=experiment_id, run_name=experiment_run) as run:
         # train params
 
-        result, time_per_epoch = execute_training(model, train_data, test_data, ground_truth, optimizer, epochs, disable_tqdm)
+        result, time_per_epoch = execute_training(model, train_data, test_data, ground_truth,
+                                                  optimizer, epochs, batch_size, temporal_matrix, disable_tqdm)
 
         log_params = {
             'model': str(model_type.__class__), **model_params,
@@ -75,7 +83,7 @@ def train_model(
     return result
 
 
-def execute_training(model, train_data, test_data, ground_truth, optimizer, epochs, disable_tqdm):
+def execute_training(model, train_data, test_data, ground_truth, optimizer, epochs, batch_size, temporal_matrix, disable_tqdm):
     """
     Executes the training loop for the model.
 
@@ -86,6 +94,8 @@ def execute_training(model, train_data, test_data, ground_truth, optimizer, epoc
         ground_truth (torch.Tensor): Ground truth data.
         optimizer (torch.optim.Optimizer): Optimizer for training.
         epochs (int): Number of training epochs.
+        batch_size (int): Batch size in case of multiple samples.
+        temporal_matrix (bool): Return a temporal matrix.
         disable_tqdm (bool): Disable tqdm progress bar.
 
     Returns:
@@ -93,14 +103,24 @@ def execute_training(model, train_data, test_data, ground_truth, optimizer, epoc
     """
     model.train()
     disable_tqdm = disable_tqdm or GPULAB_JOB_ID is not None
+    data_loader_train = DataLoader(TemporalDataset(**train_data), batch_size=batch_size, shuffle=True)
+    data_loader_test = None
+    if test_data is not None:
+        data_loader_test = DataLoader(TemporalDataset(**test_data), batch_size=batch_size, shuffle=False)
+
     start_time = time()
     for epoch in (pbar := trange(epochs, disable=disable_tqdm)):
-        if epoch == 2:
-            start_time = time()
-        optimizer.zero_grad()
-        train_metrics, _ = model(**train_data, ground_truth=ground_truth)
-        train_metrics['loss'].backward()
-        optimizer.step()
+        metrics_list = []
+        for batch in data_loader_train:
+            optimizer.zero_grad()
+            train_metrics, _ = model(**batch, ground_truth=ground_truth)
+            train_metrics['loss'].backward()
+
+            optimizer.step()
+            metrics_list.append(detach(train_metrics))
+
+        # Compute mean over batches for each metric
+        train_metrics = {k: torch.stack([d[k] for d in metrics_list]).mean(dim=0) for k in metrics_list[0].keys()}
 
         mlflow.log_metrics({f'train/{k}': v.item() for k, v in train_metrics.items()}, step=epoch)
 
@@ -112,7 +132,14 @@ def execute_training(model, train_data, test_data, ground_truth, optimizer, epoc
             if test_data is not None:
                 model.eval()
                 with torch.no_grad():
-                    test_metrics, _ = model(**test_data, ground_truth=ground_truth)
+                    metrics_list = []
+                    for batch in data_loader_test:
+                        test_metrics, _ = model(**batch, ground_truth=ground_truth)
+                        metrics_list.append(test_metrics)
+                    # Compute mean over batches for each metric
+                    test_metrics = {k: torch.stack([d[k] for d in metrics_list]).mean(dim=0) for k in
+                                    metrics_list[0].keys()}
+
                 mlflow.log_metrics({f'test/{k}': v.item() for k, v in test_metrics.items()}, step=epoch)
                 if not disable_tqdm:
                     desc += ' [test] ' + ','.join([f'{k[:5]}={v.item():.2f}' for k, v in test_metrics.items()])
@@ -124,17 +151,19 @@ def execute_training(model, train_data, test_data, ground_truth, optimizer, epoc
 
     model.eval()
     with torch.no_grad():
-        _, train_artifacts = model(**train_data, ground_truth=ground_truth, create_artifacts=True)
+        _, train_artifacts = model(**train_data, ground_truth=ground_truth,
+                                   create_artifacts=True, temporal_matrix=temporal_matrix)
         result = {'train_artifacts': train_artifacts}
         if test_data is not None:
-            _, test_artifacts = model(**test_data, ground_truth=ground_truth, create_artifacts=True)
+            _, test_artifacts = model(**test_data, ground_truth=ground_truth,
+                                      create_artifacts=True, temporal_matrix=temporal_matrix)
             result['test_artifacts'] = test_artifacts
 
     return result, time_per_epoch
 
 
 def train_test_split(data: torch.Tensor, ground_truth: torch.Tensor = None,
-                     data_noise_adjusted: torch.Tensor = None, test_size: float = 0, temporal_matrix=False, **kwargs):
+                     data_noise_adjusted: torch.Tensor = None, test_size: float = 0, **kwargs):
     """
     Splits data into training and testing sets.
 
@@ -150,7 +179,7 @@ def train_test_split(data: torch.Tensor, ground_truth: torch.Tensor = None,
     if not (0.0 <= test_size <= 1.0):
         raise ValueError("test_size should be between 0.0 and 1.0.")
 
-    train, test = {'temporal_matrix': temporal_matrix}, {'temporal_matrix': temporal_matrix}
+    train, test = {}, {}
 
     n_train = int(data.size(-1) * (1.0 - test_size))
     n_test = data.size(-1) - n_train

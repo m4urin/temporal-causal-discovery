@@ -252,7 +252,7 @@ def plot_multiple_time_series(*data,
     fig.legend(handles, sequence_labels, loc='upper right')
 
 
-def plot_heatmaps(*matrices, names: List[str] = None):
+def plot_heatmaps(*matrices, names: List[str] = None, use_ticks=True):
     """
     Plot a series of heatmaps.
 
@@ -289,11 +289,14 @@ def plot_heatmaps(*matrices, names: List[str] = None):
         ax = plt.subplot(gs[i])
         im = ax.imshow(matrix, cmap='Blues', interpolation=None, vmin=0.0, vmax=1.0)
         ax.set_title(names[i])  # Set title for each heatmap if names are provided
-        ax.set_xticks(list(range(matrix.shape[1])))
-        ax.set_yticks([])  # Hide y-ticks for all but the first heatmap
-        if i == 0:
-            first_im = im  # Store the image object of the first heatmap for colorbar
-            ax.set_yticks(list(range(matrix.shape[0])))
+        ax.set_yticks([])
+        ax.set_xticks([])
+
+        if use_ticks:
+            ax.set_xticks(list(range(matrix.shape[1])))
+            if i == 0:
+                first_im = im  # Store the image object of the first heatmap for colorbar
+                ax.set_yticks(list(range(matrix.shape[0])))
 
     # Create an axis for the colorbar
     cax = plt.subplot(gs[-1])

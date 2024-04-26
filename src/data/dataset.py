@@ -309,11 +309,8 @@ class TemporalDataset(Dataset):
             **kwargs: Additional keyword arguments to be included in each item.
         """
         self.data_dict = data_dict
-        print(data_dict)
         self.default = {k: v for k, v in data_dict.items() if not isinstance(v, torch.Tensor)}
-        print(self.default)
         self.tensors = {k: v for k, v in data_dict.items() if isinstance(v, torch.Tensor)}
-        print(self.tensors)
         self.length = len(next(iter(self.tensors.values())))
 
     def __len__(self):
