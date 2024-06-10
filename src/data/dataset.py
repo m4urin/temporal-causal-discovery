@@ -90,10 +90,14 @@ def load_synthetic_dataset(name: str) -> Dict[str, Union[str, torch.Tensor]]:
             # Load the dataset from the .pt file.
             dataset = torch.load(pt_file)
 
-    # Add the dataset name to the dictionary.
-    dataset['name'] = name
+    result = {'name': name}
+    for k, v in dataset.items():
+        result[k] = v
+        if isinstance(v, torch.Tensor) and k != 'ground_truth':
+            while result[k].ndim < 4:
+                result[k] = result[k].unsqueeze(0)
 
-    return dataset
+    return result
 
 
 def load_causeme_dataset(name: str) -> Dict[str, Union[str, torch.Tensor]]:
@@ -237,7 +241,8 @@ def save_synthetic_dataset(name: str, dataset: Dict[str, Union[str, torch.Tensor
             torch.save(dataset, pt_file)
 
 
-def save_causeme_predictions(model_name: str, dataset: Dict[str, torch.Tensor], scores: torch.Tensor, parameters: Dict[str, int], method_sha: str):
+def save_causeme_predictions(model_name: str, dataset: Dict[str, torch.Tensor], scores: torch.Tensor,
+                             parameters: Dict[str, int], method_sha: str):
     """
     Save predicted ground truths for a CauseMe experiment, ready to be uploaded to the website.
 
@@ -339,4 +344,5 @@ class TemporalDataset(Dataset):
 
 
 if __name__ == '__main__':
-    print_dataset(load_dataset('dream3', 'ecoli1', return_unpacked_datasets=True))
+    ds = load_dataset('synthetic', 'synthetic_N-5_T-300_K-5')[0]
+    print({k: v.shape if isinstance(v, torch.Tensor) else v for k, v in ds.items()})

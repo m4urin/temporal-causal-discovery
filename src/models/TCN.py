@@ -19,7 +19,7 @@ class TCN(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, kernel_size: int = 2,
                  n_blocks: int = 2, n_layers: int = 2, groups: int = 1,
                  dropout: float = 0.0, weight_sharing: bool = False, recurrent: bool = False,
-                 use_padding: bool = False, use_positional_embedding=False):
+                 use_padding: bool = False, use_positional_embedding=False, **kwargs):
         """
         This module defines a flexible Temporal Convolutional Network (TCN) class that can be configured with different
         variants of TCN models, including weight sharing and recurrent architectures.

@@ -3,11 +3,12 @@ from torch import nn
 
 from src.models.TCN import TCN
 from src.eval.soft_auroc import AUROC, soft_AUROC
+from src.models.gumbel_softmax import GumbelSoftmax, SoftmaxModule
 from src.utils import min_max_normalization
 
 
 class TAMCaD_UA(nn.Module):
-    def __init__(self, n_variables, hidden_dim, lambda1, gamma, p=0.5, n_ensembles=1, **kwargs):
+    def __init__(self, n_variables, hidden_dim, lambda1, gamma, n_ensembles, use_gumbel, p=0.5, **kwargs):
         super().__init__()
         self.gamma = gamma  # continuous matrices
         self.lambda1 = lambda1
@@ -35,6 +36,7 @@ class TAMCaD_UA(nn.Module):
                       out_channels=self.groups,
                       kernel_size=1, groups=self.groups)
         )
+        self.softmax = GumbelSoftmax(temperature=0.9) if use_gumbel else SoftmaxModule()
 
     def forward(self, x, x_noise_adjusted=None, create_artifacts=False, ground_truth=None, mask=None, temporal_matrix=False):
 
@@ -46,22 +48,22 @@ class TAMCaD_UA(nn.Module):
 
         s = context.size(-1)
 
-        attn_var = nn.functional.softplus(attn_var)
+        attn_var = nn.functional.softplus(attn_var) + 1e-6
         attention_logits = attn_mean
         if self.training:
             attention_logits = attn_mean + torch.randn_like(attn_var) * attn_var
 
         # Apply masking if provided
         if mask is None:
-            attentions = torch.softmax(attention_logits, dim=-2)
+            attentions = self.softmax(attention_logits, dim=-2)
         else:
-            attentions = torch.softmax(torch.masked_fill(attention_logits, mask, -1e9), dim=-2)
+            attentions = self.softmax(torch.masked_fill(attention_logits, mask, -1e9), dim=-2)
 
         # x: (batch_size, n_var * hidden_dim, sequence_length)
         z = torch.einsum('beijt, bejdt -> beidt', attentions, context) \
             .reshape(batch_size, -1, s)
 
-        prediction = self.prediction(z).reshape(1, self.n_ensembles, n_var, s)  # (1, n_ensembles, n_var, seq_len)
+        prediction = self.prediction(z).reshape(-1, self.n_ensembles, n_var, s)  # (bs, n_ensembles, n_var, seq_len)
 
         return self.process(x, prediction, attentions, attn_mean, attn_var, x_noise_adjusted,
                             create_artifacts, ground_truth, temporal_matrix)
@@ -148,7 +150,7 @@ class TAMCaD_UA(nn.Module):
                     eval_matrix_ep = attn_logits_ep[..., :-1]
                     ground_truth = ground_truth[..., 1 - s:]
                 ground_truth = ground_truth.to(eval_matrix.device)
-
+                #ground_truth = ground_truth.unsqueeze(0).repeat(self.n_ensembles, 1, 1)
                 auc, tpr, fpr = AUROC(ground_truth, eval_matrix)
                 soft_auc, soft_tpr, soft_fpr = soft_AUROC(ground_truth, eval_matrix, eval_matrix_ep)
 

@@ -308,6 +308,77 @@ def plot_heatmaps(*matrices, names: List[str] = None, use_ticks=True):
     plt.tight_layout()
 
 
+def plot_heatmaps_grid(matrices, names=None, use_ticks=True):
+    """
+    Plot a grid of heatmaps.
+
+    This function plots heatmaps from a 2D grid of matrices, ensuring all heatmaps
+    are of the same size, including those with the colorbar. This function also allows
+    for the input matrices to either be NumPy arrays or PyTorch tensors.
+
+    Args:
+        matrices (list[list[array-like]]): The grid of matrices to plot as heatmaps.
+        names (List[List[str]], optional): The titles for each heatmap. Defaults to None,
+                                           which means no titles will be displayed.
+        use_ticks (bool): Whether to display ticks on the axes.
+
+    Example:
+        >>> data = [np.random.randn(5, 5) for _ in range(3)]
+        >>> plot_heatmaps([data, data], names=[['Matrix 1', 'Matrix 2', "M3"], ['Matrix 4', 'Matrix 5', "M6"]])
+        >>> plt.show()
+    """
+    rows = len(matrices)
+    cols = len(matrices[0])
+
+    # Create a figure and layout grid for the heatmaps and colorbar
+    fig = plt.figure(figsize=(2 * cols + 0.9, 3 * rows))
+    gs = gridspec.GridSpec(rows, cols + 1, width_ratios=[1.0] * cols + [0.1], height_ratios=[1.3]*rows)
+
+    first_im = None  # Initialize image object for colorbar
+
+    # Iterate through each row and column in the grid
+    for row in range(rows):
+        for col in range(cols):
+            ax = plt.subplot(gs[row, col])
+            matrix = matrices[row][col]
+            if matrix is None:
+                continue
+            im = ax.imshow(matrix, cmap='Blues', interpolation=None, vmin=0.0, vmax=1.0)
+
+            # Set title if names are provided
+            if names and names[row][col]:
+                ax.set_title(names[row][col])
+
+            # Hide ticks or set them based on use_ticks
+            ax.set_xticks([])
+            ax.set_yticks([])
+            if use_ticks:
+                ax.set_xticks(list(range(matrix.shape[1])))
+                if col == 0:  # Y ticks only for the first column
+                    ax.set_yticks(list(range(matrix.shape[0])))
+                    first_im = first_im or im
+
+    # Create an axis for the colorbar in the last column
+    cax = plt.subplot(gs[:, -1])
+    fig.colorbar(first_im, cax=cax, orientation='vertical')
+
+    # Ensure the layout fits within the figure size
+    plt.tight_layout()
+
+if __name__ == '__main__':
+
+    data = [[np.random.randn(5, 5) for _ in range(2)] for _ in range(2)]
+
+    # Define titles for each matrix in a matching 2x2 grid structure
+    names = [['Matrix 1-1', 'Matrix 1-2'], ['Matrix 2-1', 'Matrix 2-2']]
+
+    # Call the plot_heatmaps function with the generated data and names
+    plot_heatmaps_grid(data, names=names, use_ticks=True)
+
+    # Show the plot
+    plt.show()
+
+
 def plot_learned_relationships(x, contributions, scores):
     """
     Plots the relationship between variables at adjacent time steps, overlaying learned contributions.

@@ -3,14 +3,16 @@ from torch import nn
 
 from src.models.TCN import TCN
 from src.eval.soft_auroc import AUROC
+from src.models.gumbel_softmax import GumbelSoftmax, SoftmaxModule
 from src.utils import min_max_normalization
 
 
 class TAMCaD(nn.Module):
-    def __init__(self, n_variables, hidden_dim, gamma, dropout, **kwargs):
+    def __init__(self, n_variables, hidden_dim, gamma, dropout, use_gumbel, **kwargs):
         super().__init__()
         self.gamma = gamma  # continuous matrices
         self.hidden_dim = hidden_dim
+        self.softmax = GumbelSoftmax(temperature=0.9) if use_gumbel else SoftmaxModule()
 
         self.tcn = TCN(
                 in_channels=n_variables,
@@ -41,9 +43,9 @@ class TAMCaD(nn.Module):
 
         # Apply masking if provided
         if mask is None:
-            attentions = torch.softmax(attention_logits, dim=2)
+            attentions = self.softmax(attention_logits, dim=2)
         else:
-            attentions = torch.softmax(torch.masked_fill(attention_logits, mask, -1e9), dim=2)
+            attentions = self.softmax(torch.masked_fill(attention_logits, mask, -1e9), dim=2)
 
         # x: (batch_size, n_var * hidden_dim, sequence_length)
         z = torch.einsum('bijt, bjdt -> bidt', attentions, context).reshape(batch_size, n_var * self.hidden_dim, -1)
@@ -70,7 +72,7 @@ class TAMCaD(nn.Module):
             temporal_matrix (bool): Flag to use sliding window for temporal matrices.
             ground_truth (torch.Tensor, optional): Ground truth tensor for the causal matrix an is
                 of size (n_var, n_var) or (n_var, n_var, seq_len), corresponding with temporal_matrix flag.
-
+            attentions (torch.Tensor, optional): Attentions after applying softmax to the logits.
         Returns:
             dict: A dictionary containing the loss, prediction, and optional metrics like causal matrix and AUROC.
         """
@@ -82,7 +84,8 @@ class TAMCaD(nn.Module):
         attention_logits = attention_logits.detach()  # (bs, n_var, n_var, seq_len)
         if self.gamma > 0:
             #loss = loss + self.gamma * torch.diff(attention_logits, dim=-1).abs().mean()
-            loss = loss + self.gamma * attentions.pow(0.1).mean()
+            #loss = loss + self.gamma * (-attentions * torch.log(attentions + 1e-10)).mean()
+            loss = loss + self.gamma * (-attentions * torch.log(attentions + 1e-10)).mean()
 
         metrics['loss'] = loss
         if create_artifacts:
@@ -104,7 +107,7 @@ class TAMCaD(nn.Module):
             causal_matrix = causal_matrix.mean(dim=0)
 
             if create_artifacts:
-                artifacts['matrix'] = min_max_normalization(causal_matrix, min_val=0.0, max_val=1.0)
+                artifacts['matrix'] = min_max_normalization(causal_matrix, min_val=-1, max_val=1.0)
 
             if ground_truth is not None:
                 if temporal_matrix:

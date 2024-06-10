@@ -1,27 +1,24 @@
 import argparse
 import bz2
-import hashlib
 import json
 import math
 import os
 import pickle
 import time
 import warnings
-import zipfile
+from pathlib import Path
 from typing import Union, Iterable
 
-import mlflow
-import numpy as np
 import torch
-from collections import defaultdict
-from hyperopt import hp
-from pathlib import Path
-
-from hyperopt.pyll import scope
-from scipy.ndimage import gaussian_filter1d
 from torch import nn
 from torch.optim import lr_scheduler
+import mlflow
 from tqdm import trange
+import numpy as np
+from collections import defaultdict
+from hyperopt import hp
+from hyperopt.pyll import scope
+from scipy.ndimage import gaussian_filter1d
 
 
 # --------- Paths -------
@@ -42,7 +39,7 @@ TEST_DIR = os.path.join(OUTPUT_DIR, 'test')
 os.makedirs(TEST_DIR, exist_ok=True)
 
 """ MLFlow """
-TRACKING_URI = f'file://{os.path.join(OUTPUT_DIR, "mlruns")}'.replace("\\", "/")
+TRACKING_URI = f"file:///{os.path.join(OUTPUT_DIR, 'mlruns')}"
 mlflow.set_tracking_uri(TRACKING_URI)
 
 if __name__ == '__main__':

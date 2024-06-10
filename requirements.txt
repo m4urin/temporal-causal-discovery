@@ -4,6 +4,6 @@ hyperopt
 matplotlib
 scikit_learn
 scipy
-torch
 mlflow
 tqdm
+lingam

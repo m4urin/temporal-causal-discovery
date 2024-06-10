@@ -17,7 +17,7 @@ def train_model(
         dataset: dict,
         lr: float,
         epochs: int,
-        weight_decay: float,
+        weight_decay: float = 1e-2,
         test_size: float = 0.3,
         batch_size: int = 8,
         temporal_matrix: bool = False,

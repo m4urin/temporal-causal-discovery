@@ -250,7 +250,6 @@ def test_models():
         plt.show()
 
 
-
 def strong_interaction():
     lin_space = np.linspace(-1, 1, 20)
     x1, x2 = np.meshgrid(lin_space, lin_space)
@@ -433,4 +432,3 @@ def fit_regression_model(model: nn.Module, model_original: nn.Module, data_size,
 
 if __name__ == '__main__':
     strong_interaction()
-    #test_models()
