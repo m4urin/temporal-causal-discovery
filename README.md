@@ -1,7 +1,7 @@
 > **Note**
 > This repository is a work in progress, and the current method is based on another method called NAVAR (Neural Additive Vector Autoregression). To learn more about NAVAR, please refer to the original repository [here](https://github.com/bartbussmann/NAVAR).
 
-# Temporal Causal Discovery with Deep Learning
+# Temporal Causal Discovery with Machine Learning
 
 [[PDF]](https://raw.githubusercontent.com/m4urin/temporal-causal-discovery/main/thesis.pdf) (work in progress)
 
